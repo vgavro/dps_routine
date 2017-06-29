@@ -7,6 +7,8 @@ import os.path
 import xlrd
 
 
+FILENAME_TEMPLATE = '{C_STI_ORIG}{TIN}F010330510000000012032017{C_STI_ORIG}.xml'
+
 DECLARHEAD_FIELDS = ('TIN,C_DOC,C_DOC_SUB,C_DOC_VER,C_DOC_TYPE,C_DOC_CNT,'
                      'C_REG,C_RAJ,PERIOD_MONTH,PERIOD_TYPE,PERIOD_YEAR,'
                      'C_STI_ORIG,C_DOC_STAN,D_FILL'.split(','))
@@ -14,15 +16,21 @@ DECLARHEAD_FIELDS = ('TIN,C_DOC,C_DOC_SUB,C_DOC_VER,C_DOC_TYPE,C_DOC_CNT,'
 
 DEFAULTS = {
     'C_DOC': 'F01',
+    'C_DOC_SUB': '033',
     'C_DOC_TYPE': 0,
     'C_DOC_VER': 5,
     'C_DOC_CNT': 1,
+    'HZ': 1,
 }
 
 
 def create_xml(data):
-    root = ET.Element('DECLAR')
+    root = ET.Element('DECLAR', {'xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
+                                 'xsi:noNamespaceSchemaLocation': 'F0103305.xsd'})
     head = ET.SubElement(root, 'DECLARHEAD')
+    ET.SubElement(head, 'LINKED_DOCS', {'xsi:nil': 'true'})
+    ET.SubElement(head, 'SOFTWARE', {'xsi:nil': 'true'})
+
     body = ET.SubElement(root, 'DECLARBODY')
 
     data_ = DEFAULTS.copy()
@@ -39,9 +47,6 @@ def create_xml(data):
         except ET.ParseError:
             raise RuntimeError('Invalid field {}: could not parse {}'
                                .format(key, tag_str))
-
-        if isinstance(value, float) and value == int(value):
-            value = int(value)
         e.text = str(value)
 
         if tag in DECLARHEAD_FIELDS:
@@ -52,8 +57,9 @@ def create_xml(data):
     return ET.ElementTree(root)
 
 
-def write_xml(data, filename=None, encoding='windows-1251'):
-    filename = filename or (datetime.now().isoformat() + '.xml')
+def write_xml(data, output_dir='./', encoding='windows-1251'):
+    filename = os.path.join(output_dir, FILENAME_TEMPLATE.format(**data))
+    print('Creating {}'.format(filename))
     create_xml(data).write(filename, encoding)
 
 
@@ -71,10 +77,15 @@ def main(xlsx_filename='Книга1.xlsx', sheet_index=0,
     except OSError:
         pass
 
+    def parse_value(value):
+        if isinstance(value, float) and value == int(value):
+            value = int(value)
+        return value
+
     for i in range(data_start_row_index, sheet.nrows):
-        data = dict(zip(fields, sheet.row_values(i)))
+        data = dict(zip(fields, map(parse_value, sheet.row_values(i))))
         try:
-            write_xml(data, os.path.join(output_dir, '{:02d}.xml'.format(i)))
+            write_xml(data, output_dir)
         except Exception as exc:
             if not supress_exc:
                 raise
@@ -84,3 +95,4 @@ def main(xlsx_filename='Книга1.xlsx', sheet_index=0,
 if __name__ == '__main__':
     from sys import argv
     (len(argv) > 1) and main(argv[1]) or main()
+    input('DONE. press any key to close')
