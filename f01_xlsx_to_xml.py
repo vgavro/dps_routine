@@ -40,6 +40,9 @@ def create_xml(data):
         if callable(value):
             value = value(data_)
 
+        if not value:
+            continue
+
         tag = key.split(' ')[0]
         tag_str = '<{}></{}>'.format(key, tag)
         try:
