@@ -42,6 +42,8 @@ def create_xml(data):
 
         if not value and key not in ['C_DOC_TYPE']:
             continue
+        if isinstance(value, float):
+            value = '{:.2f}'.format(value)
 
         tag = key.split(' ')[0]
         tag_str = '<{}></{}>'.format(key, tag)
