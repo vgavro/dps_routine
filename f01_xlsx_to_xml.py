@@ -40,7 +40,7 @@ def create_xml(data):
         if callable(value):
             value = value(data_)
 
-        if not value:
+        if not value and key not in ['C_DOC_TYPE']:
             continue
 
         tag = key.split(' ')[0]
