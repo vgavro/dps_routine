@@ -21,6 +21,7 @@ DEFAULTS = {
     'C_DOC_VER': 5,
     'C_DOC_CNT': 1,
     'HZ': 1,
+    'HNACTL': 0,
 }
 
 
@@ -40,7 +41,7 @@ def create_xml(data):
         if callable(value):
             value = value(data_)
 
-        if not value and key not in ['C_DOC_TYPE']:
+        if not value and key not in ['C_DOC_TYPE', 'HNACTL']:
             continue
         if isinstance(value, float):
             value = '{:.2f}'.format(value)
