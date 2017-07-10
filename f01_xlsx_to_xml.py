@@ -3,6 +3,7 @@
 import xml.etree.cElementTree as ET
 from datetime import datetime
 import os.path
+from collections import OrderedDict
 
 import xlrd
 
@@ -14,15 +15,16 @@ DECLARHEAD_FIELDS = ('TIN,C_DOC,C_DOC_SUB,C_DOC_VER,C_DOC_TYPE,C_DOC_CNT,'
                      'C_STI_ORIG,C_DOC_STAN,D_FILL'.split(','))
 # Assuming any other field will be appended to body
 
-DEFAULTS = {
-    'C_DOC': 'F01',
-    'C_DOC_SUB': '033',
-    'C_DOC_TYPE': 0,
-    'C_DOC_VER': 5,
-    'C_DOC_CNT': 1,
-    'HZ': 1,
-    'HNACTL': 0,
-}
+DEFAULTS = OrderedDict([
+    ('TIN', None),  # should always be first
+    ('C_DOC', 'F01'),
+    ('C_DOC_SUB', '033'),
+    ('C_DOC_TYPE', 0),
+    ('C_DOC_VER', 5),
+    ('C_DOC_CNT', 1),
+    ('HZ', 1),
+    ('HNACTL', 0),
+])
 
 
 def create_xml(data):
@@ -88,7 +90,7 @@ def main(xlsx_filename='Книга1.xlsx', sheet_index=0,
         return value
 
     for i in range(data_start_row_index, sheet.nrows):
-        data = dict(zip(fields, map(parse_value, sheet.row_values(i))))
+        data = OrderedDict(zip(fields, map(parse_value, sheet.row_values(i))))
         try:
             write_xml(data, output_dir)
         except Exception as exc:
