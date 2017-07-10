@@ -29,9 +29,6 @@ def create_xml(data):
     root = ET.Element('DECLAR', {'xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
                                  'xsi:noNamespaceSchemaLocation': 'F0103305.xsd'})
     head = ET.SubElement(root, 'DECLARHEAD')
-    ET.SubElement(head, 'LINKED_DOCS', {'xsi:nil': 'true'})
-    ET.SubElement(head, 'SOFTWARE', {'xsi:nil': 'true'})
-
     body = ET.SubElement(root, 'DECLARBODY')
 
     data_ = DEFAULTS.copy()
@@ -60,6 +57,8 @@ def create_xml(data):
         else:
             body.append(e)
 
+    ET.SubElement(head, 'LINKED_DOCS', {'xsi:nil': 'true'})
+    ET.SubElement(head, 'SOFTWARE', {'xsi:nil': 'true'})
     return ET.ElementTree(root)
 
 
