@@ -71,7 +71,7 @@ class Cabinet:
             driver = webdriver.Chrome(chrome_options=chrome_options)
             driver.set_page_load_timeout(WAIT_TIMEOUT)
             # maybe move out from screen?
-            driver.set_window_position(-1000, 0)
+            # driver.set_window_position(0, 0)
             # driver.set_window_size(0, 0)
         self.driver = driver
 
