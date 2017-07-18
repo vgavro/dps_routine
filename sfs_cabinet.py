@@ -11,6 +11,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import NoSuchElementException
 import xlrd, xlwt
 import xlutils.copy
 import choice
@@ -37,7 +38,7 @@ def get_relative_path(path):
     return os.path.abspath(os.path.join(dirname, path))
 
 
-WAIT_TIMEOUT = 10
+WAIT_TIMEOUT = 20
 
 KEY_PASSWORD = open(get_relative_path('key_password')).read().strip()
 KEYS_FILENAME = get_relative_path('keys.xls')
@@ -86,6 +87,10 @@ class Cabinet:
 
     def get_element_by_text(self, text):
         xpath = "//*[text() = '{}']".format(text)
+        return self.driver.find_element_by_xpath(xpath)
+
+    def get_element_by_text_contains(self, text):
+        xpath = "//*[text()[contains(., '{}')]]".format(text)
         return self.driver.find_element_by_xpath(xpath)
 
     def wait_presence(self, selector):
@@ -148,6 +153,7 @@ class Cabinet:
         self.wait_invisible('.blockUI.blockOverlay')
         self.send_keys('#PKeyFileInput', cert_path)
         self.send_keys('#PKeyPassword', password)
+        sleep(1)  # seems onclick is not always binded
         self.click('#PKeyReadButton')
         info = self.wait_visible('#certInfo').text
         match = re.match('Власник: ([\w\s]+) \((\d+)\)$', info, re.MULTILINE)
@@ -171,8 +177,24 @@ class Cabinet:
         self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/ta.jspx')
         self.wait_connected()
 
-        self.get_element_by_text(payment_id).click()
+        e = self.get_element_by_text_contains(payment_id)
+        payment_info = e.find_element_by_xpath('../../../../..').text
 
+        assert payment_info.startswith('ОДФС'), 'Unknown payment info: {}'.format(payment_info)
+
+        patterns = [
+            '^ОДФС (.*)$',
+            '^Код ЄДРПОУ отримувача (\d+)$',
+            '^МФО (\d+)$',
+            '^Бюджетний рахунок (\d+)$',
+        ]
+        payment_info_parsed = []
+        for pattern in patterns:
+            match = re.search(pattern, payment_info, re.MULTILINE)
+            assert match, 'Pattern not matched {}: {}'.format(pattern, payment_info)
+            payment_info_parsed.append(match.group(1))
+
+        e.click()
         self.wait_connected()
 
         self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/'
@@ -183,7 +205,7 @@ class Cabinet:
         filename = str(self.inn) + '_' + payment_id.replace(' ', '') + '.xls'
         filename = os.path.join(self.reports_dir, filename)
         os.rename(self.budget_status_report_default_path, filename)
-        return filename
+        return payment_info_parsed, filename
 
         #self.click_img_and_wait_invisible('/cabinet/faces/javax.faces.resource/back.png?ln=images')
         #self.wait_connected()
@@ -198,13 +220,18 @@ class Cabinet:
             # wb.close()
             return saldo
 
-        filename = self.get_budget_status_report('50 18050400 00')
+        try:
+            info1, filename = self.get_budget_status_report('18050400')
+        except NoSuchElementException:
+            info1, filename = self.get_budget_status_report('18050401')
         saldo1 = parse_saldo(filename)
+        info1.append(saldo1)  # EN
 
-        filename = self.get_budget_status_report('70 71040000 00')
+        info2, filename = self.get_budget_status_report('71040000')
         saldo2 = parse_saldo(filename)
+        info2.append(saldo2)  # ESV
 
-        return saldo1, saldo2
+        return info1, info2
 
     def send_report(self, filename, report_type='F0103305'):
         self.get('https://cabinet.sfs.gov.ua/cabinet/faces/index.jspx')
@@ -351,17 +378,23 @@ def get_budget_status(filename=BUDGET_STATUS_FILENAME):
         try:
             cabinet.login(keys_map[inn])
             assert cabinet.inn == inn, 'Key inn in store and after login not matched!'
-            saldo1, saldo2 = cabinet.get_budget_status()
+            en_info, esv_info = cabinet.get_budget_status()
         except Exception as e:
             log.exception('Error occured on budget processing %s %s', inn, repr(e))
             continue
         finally:
             cabinet.quit()
-        log.info('Adding budget status inn=%s fio=%s saldo1=%s saldo2=%s',
-                 cabinet.inn, cabinet.fio, saldo1, saldo2)
+        log.info('Adding budget status inn=%s fio=%s en_info=%s esv_info=%s',
+                 cabinet.inn, cabinet.fio, en_info, esv_info)
         append_xls(BUDGET_STATUS_FILENAME,
-                   ['inn', 'fio', 'parsed', 'saldo1', 'saldo2'],
-                   [cabinet.inn, cabinet.fio, datetime.now(), saldo1, saldo2])
+                   ['inn', 'fio', 'parsed',
+                    'en_odfs', 'en_edrpou', 'en_mfo', 'en_account', 'en_saldo',
+                    'esv_odfs', 'esv_edrpou', 'esv_mfo', 'esv_account', 'esv_saldo',
+                   ],
+                   [cabinet.inn, cabinet.fio, datetime.now(),
+                    en_info[0], en_info[1], en_info[2], en_info[3], en_info[4],
+                    esv_info[0], esv_info[1], esv_info[2], esv_info[3], esv_info[4],
+                   ])
 
 
 def send_outbox(outbox_dir=OUTBOX_DIR, sent_dir=SENT_DIR):
