@@ -156,7 +156,7 @@ class Cabinet:
         sleep(1)  # seems onclick is not always binded
         self.click('#PKeyReadButton')
         info = self.wait_visible('#certInfo').text
-        match = re.match('Власник: ([\w\s]+) \((\d+)\)$', info, re.MULTILINE)
+        match = re.match('Власник: (.+) \((\d+)\)$', info, re.MULTILINE)
         if not match:
             raise RuntimeError('Unmatched certInfo text: {}'.format(info))
         fio, inn = match.groups()
