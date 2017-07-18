@@ -17,6 +17,11 @@ import choice
 
 import arial10
 
+try:
+    import glob2
+except ImportError:
+    glob2 = None
+
 
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s %(levelname)s %(message)s')
@@ -293,8 +298,11 @@ class KeysMap(dict):
 
 def scan_keys(keys_dir=KEYS_DIR):
     keys_map = KeysMap()
-    files = tuple(glob.iglob(os.path.join(KEYS_DIR, '**/Key-6.dat'),
-                             recursive=True))
+    if glob2:
+        files = tuple(glob2.iglob(os.path.join(KEYS_DIR, '**/Key-6.dat')))
+    else:
+        files = tuple(glob.iglob(os.path.join(KEYS_DIR, '**/Key-6.dat'),
+                                 recursive=True))
     log.info('Keys (%s) in %s', len(files), keys_dir)
     for filename in files:
         filename = os.path.abspath(filename)
