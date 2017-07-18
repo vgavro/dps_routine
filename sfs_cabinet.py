@@ -69,6 +69,9 @@ class Cabinet:
             })
             driver = webdriver.Chrome(chrome_options=chrome_options)
             driver.set_page_load_timeout(WAIT_TIMEOUT)
+            # maybe move out from screen?
+            # driver.set_window_position(0, 0)
+            # driver.set_window_size(0, 0)
         self.driver = driver
 
     def get(self, url):
@@ -222,6 +225,11 @@ class Cabinet:
         self.wait_connected()
         self.send_keys('input[type="file"]', filename)
         self.wait_connected()
+        e = self.get_element('.ui-pnotify-container')
+        assert e.text == 'Завантажено успішно', e.text
+
+        # self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/checked.png?ln=images')
+        # self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/sign.png?ln=images')
 
 
 # FitSheetWrapper from https://stackoverflow.com/a/9137934/450103
