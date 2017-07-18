@@ -283,6 +283,7 @@ class KeysMap(dict):
         for inn, path in self.items():
             if not os.path.exists(path):
                 log.warn('Skipping %s on key load: file not found %s', inn, path)
+                self.pop(inn)
         log.info('Keys loaded (%s) from %s', len(self), filename)
 
     def add_key(self, inn, fio, filename):
