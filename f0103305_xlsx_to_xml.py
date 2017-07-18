@@ -101,5 +101,15 @@ def main(xlsx_filename='Книга1.xlsx', sheet_index=0,
 
 if __name__ == '__main__':
     from sys import argv
-    (len(argv) > 1) and main(argv[1]) or main()
+    try:
+        if len(argv) > 1:
+            main(argv[1])
+        else:
+            filename = input('Enter filename: [default="Книга1.xlsx"]')
+            if not filename:
+                main()
+            else:
+                main(filename)
+    except Exception as e:
+        print(e)
     input('DONE. press any key to close')
