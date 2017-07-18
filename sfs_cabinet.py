@@ -385,6 +385,7 @@ def send_outbox(outbox_dir=OUTBOX_DIR, sent_dir=SENT_DIR):
 def main():
     func = choice.Menu(['scan_keys', 'get_budget_status', 'send_outbox']).ask()
     globals()[func]()
+    input('DONE. press any key to close')
 
 
 if __name__ == '__main__':
