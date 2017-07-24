@@ -224,7 +224,10 @@ class Cabinet:
             ws = wb.sheet_by_index(0)
             status_date_text = ws.row(3)[1].value
             assert ws.row(5)[6].value == 'Сальдо розрахунків', 'Unexpected report format'
-            saldo = ws.row(6)[6].value or 0
+            try:
+                saldo = ws.row(6)[6].value or 0
+            except IndexError:
+                saldo = 0
             # wb.close()
             return saldo
 
