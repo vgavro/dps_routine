@@ -4,12 +4,14 @@ from time import sleep
 from datetime import datetime
 import re
 import os
+import sys
 import glob
 import logging
+from xml.etree import ElementTree as ET
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException
 import xlrd, xlwt
@@ -39,10 +41,12 @@ def get_relative_path(path):
 
 
 WAIT_TIMEOUT = 20
+DEBUG = ('--debug' in sys.argv)
 
 KEY_PASSWORD = open(get_relative_path('key_password')).read().strip()
 KEYS_FILENAME = get_relative_path('keys.xls')
 BUDGET_STATUS_FILENAME = get_relative_path('budget_status.xls')
+RECEIPTS_STATUS_FILENAME = get_relative_path('receipts_status.xls')
 KEYS_DIR = get_relative_path('./keys')
 
 REPORTS_DIR = get_relative_path('./reports')
@@ -58,6 +62,7 @@ class Cabinet:
         self.outbox_dir = OUTBOX_DIR
         self.sent_dir = SENT_DIR
         self.budget_status_report_default_path = os.path.join(self.reports_dir, 'pa.xls')
+        self.receipt_xml_default_path = os.path.join(self.reports_dir, 'data.xml')
 
         for dir_ in [self.reports_dir, self.outbox_dir, self.sent_dir]:
             if not os.path.exists(dir_):
@@ -146,11 +151,7 @@ class Cabinet:
     def wait_connected(self):
         self.wait_visible('img[src="/cabinet/afr/alta-v1/connected.gif"]')
 
-    def pre_login_cert(self, cert_path, password=KEY_PASSWORD):
-        self.get('https://cabinet.sfs.gov.ua/cabinet/faces/login.jspx')
-
-        self.wait_presence('.blockUI.blockOverlay')
-        self.wait_invisible('.blockUI.blockOverlay')
+    def enter_cert(self, cert_path, password=KEY_PASSWORD):
         self.send_keys('#PKeyFileInput', cert_path)
         self.send_keys('#PKeyPassword', password)
         sleep(1)  # seems onclick is not always binded
@@ -162,6 +163,13 @@ class Cabinet:
         fio, inn = match.groups()
         log.debug('inn=%s, fio=%s', inn, fio)
         return int(inn), fio
+
+    def pre_login_cert(self, cert_path, password=KEY_PASSWORD):
+        self.get('https://cabinet.sfs.gov.ua/cabinet/faces/login.jspx')
+
+        self.wait_presence('.blockUI.blockOverlay')
+        self.wait_invisible('.blockUI.blockOverlay')
+        return self.enter_cert(cert_path, password)
 
     def login(self, key_path, password=KEY_PASSWORD):
         self.inn, self.fio = self.pre_login_cert(key_path, password)
@@ -233,7 +241,54 @@ class Cabinet:
 
         return info1, info2
 
-    def send_report(self, filename, report_type='F0103305'):
+    def get_last_receipt(self):
+        def parse_receipt(filename):
+            root = ET.parse(filename).getroot()
+
+            year = int(root.find('DECLARHEAD/PERIOD_YEAR').text)
+            month = int(root.find('DECLARHEAD/PERIOD_MONTH').text)
+            sent_date = root.find('DECLARBODY/HDATE').text
+            sent_time = root.find('DECLARBODY/HTIME').text
+            report_type = root.find('DECLARBODY/HDOCKOD').text
+            result_text = root.find('DECLARBODY/HRESULT').text
+            if result_text in ('Пакет прийнято.', 'Прийнято пакет.'):
+                status = 2
+            else:
+                status = 1
+            return report_type, status, year, month, sent_date, sent_time, result_text
+
+        if os.path.exists(self.receipt_xml_default_path):
+            os.remove(self.receipt_xml_default_path)
+
+        self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/dm03.jspx')
+        self.wait_connected()
+        sleep(2)
+        try:
+            self.get_element_by_text_contains('[J1499201]').click()
+        except NoSuchElementException:
+            return None
+        self.wait_connected()
+        self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/'
+                                        'xml.png?ln=images')
+        self.wait_callback(lambda: os.path.exists(self.receipt_xml_default_path))
+        filename = str(self.inn) + '_J1499201.xls'
+        filename = os.path.join(self.reports_dir, filename)
+        os.rename(self.receipt_xml_default_path, filename)
+        return parse_receipt(filename)
+
+
+    def send_f0103305_report(self, filename, key_path, password=KEY_PASSWORD):
+        content = open(filename, 'rb').read()
+
+        match = re.search(b'<PERIOD_YEAR>(\d+)</PERIOD_YEAR>', content, re.MULTILINE)
+        assert match, 'Could not find PERIOD_YEAR (skipping) %s' % filename
+        period_year = int(match.group(1))
+
+        match = re.search(b'<PERIOD_MONTH>(\d+)</PERIOD_MONTH>', content, re.MULTILINE)
+        assert match, 'Could not find PERIOD_MONTH (skipping) %s' % filename
+        period_month = int(match.group(1))
+        assert period_month in (3, 6, 9, 12), 'Unknown PERIOD_MONTH: {}'.format(period_month)
+
         self.get('https://cabinet.sfs.gov.ua/cabinet/faces/index.jspx')
         self.wait_connected()
         self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/dp00.jspx')
@@ -241,22 +296,68 @@ class Cabinet:
         self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/ic_note_add.png'
                                         '?ln=images')
         self.wait_connected()
-        e = self.get_element_by_text(report_type)
-        e.click()
+
+        label = self.get_element_by_text('Рік')
+        assert label.tag_name == 'label'
+        input_ = label.find_element_by_xpath('../../td/table/tbody/tr/td/input')
+        input_.clear()
+        input_.send_keys(str(period_year))
+
+        label = self.get_element_by_text('Період')
+        assert label.tag_name == 'label'
+        select = Select(label.find_element_by_xpath('../../td/select'))
+        select.select_by_value(str(period_month - 1))  # months 0...11
+
+
+        # this should invoke list loading, not working without it
+        # TODO: click not on report, but on some safe place
+        self.get_element_by_text('Податкова декларацiя платника єдиного податку - фiзичної особи _ пiдприємця').click()
+        sleep(2)
         self.wait_connected()
-        e = self.get_element_by_text('Створити ')
-        e.click()
+
+        self.get_element_by_text('Податкова декларацiя платника єдиного податку - фiзичної особи _ пiдприємця').click()
+        self.wait_connected()
+        self.get_element_by_text('Створити ').click()
         self.wait_connected()
         self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/upload.png'
                                         '?ln=images')
+        sleep(1)
         self.wait_connected()
+        sleep(1)
         self.send_keys('input[type="file"]', filename)
+        sleep(1)
         self.wait_connected()
+        sleep(1)
         e = self.get_element('.ui-pnotify-container')
         assert e.text == 'Завантажено успішно', e.text
 
-        # self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/checked.png?ln=images')
-        # self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/sign.png?ln=images')
+        self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/checked.png?ln=images')
+        sleep(1)
+        self.wait_connected()
+        sleep(1)  # well, you may remove this shit if you have enough time for cabinet debug...
+        try:
+            e = self.get_element('.ui-pnotify-container')
+        except NoSuchElementException:
+            raise RuntimeError('Звіт має помилки (не критичні?)')
+        assert e.text == 'Помилок немає', e.text
+
+        self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/sign.png?ln=images')
+        self.wait_connected()
+
+        self.get_element_by_text('Підпис документа  приватним підприємцем')
+        # checked that all ok
+
+        inn, fio = self.enter_cert(key_path, password)
+        assert inn == self.inn
+        assert fio == self.fio
+
+        self.click('#LoginButton')
+        sleep(1)
+        self.wait_connected()
+        sleep(1)  # yeah... i know...
+        e = self.wait_visible('.ui-pnotify-container')
+        assert str(e.text).startswith('Підписано успішно')
+        return e.text
 
 
 # FitSheetWrapper from https://stackoverflow.com/a/9137934/450103
@@ -305,6 +406,13 @@ def append_xls(filename, headers, *rows):
     wb.save(filename)
 
 
+def write_row_by_index_xls(filename, index, row):
+    ws, wb = open_xls(filename, None)
+    for x, cell in enumerate(row):
+        ws.write(index, x, cell)
+    wb.save(filename)
+
+
 class KeysMap(dict):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -348,6 +456,8 @@ def scan_keys(keys_dir=KEYS_DIR):
                 inn, fio = cabinet.pre_login_cert(filename)
             except Exception as e:
                 log.exception('Error occured on key processing %s %s', filename, repr(e))
+                if DEBUG:
+                    import pdb; pdb.set_trace()
                 continue
             finally:
                 cabinet.quit()
@@ -381,12 +491,14 @@ def get_budget_status(filename=BUDGET_STATUS_FILENAME):
             en_info, esv_info = cabinet.get_budget_status()
         except Exception as e:
             log.exception('Error occured on budget processing %s %s', inn, repr(e))
+            if DEBUG:
+                import pdb; pdb.set_trace()
             continue
         finally:
             cabinet.quit()
         log.info('Adding budget status inn=%s fio=%s en_info=%s esv_info=%s',
                  cabinet.inn, cabinet.fio, en_info, esv_info)
-        append_xls(BUDGET_STATUS_FILENAME,
+        append_xls(filename,
                    ['inn', 'fio', 'parsed',
                     'en_odfs', 'en_edrpou', 'en_mfo', 'en_account', 'en_saldo',
                     'esv_odfs', 'esv_edrpou', 'esv_mfo', 'esv_account', 'esv_saldo',
@@ -395,6 +507,59 @@ def get_budget_status(filename=BUDGET_STATUS_FILENAME):
                     en_info[0], en_info[1], en_info[2], en_info[3], en_info[4],
                     esv_info[0], esv_info[1], esv_info[2], esv_info[3], esv_info[4],
                    ])
+
+
+def get_receipts_status(filename=RECEIPTS_STATUS_FILENAME):
+    log.info('Get receipts status %s', filename)
+
+    keys_map = KeysMap()
+    processed = []
+    inn_rows = {}
+
+    if os.path.exists(filename):
+        wb = xlrd.open_workbook(filename)
+        ws = wb.sheet_by_index(0)
+        for i in range(1, ws.nrows):
+            inn = ws.row(i)[0].value
+            if inn and int(ws.row(i)[4].value or 0) == 2:
+                # no check if status == 2
+                processed.append(int(inn))
+            else:
+                inn_rows[inn] = i
+
+    to_process = set(keys_map) - set(processed)
+    log.info('Processing %s (processed already %s)', len(to_process), len(set(processed)))
+
+    for inn in to_process:
+        cabinet = Cabinet()
+        try:
+            cabinet.login(keys_map[inn])
+            assert cabinet.inn == inn, 'Key inn in store and after login not matched!'
+            info = cabinet.get_last_receipt()
+        except Exception as e:
+            log.exception('Error occured on receipt processing %s %s', inn, repr(e))
+            if DEBUG:
+                import pdb; pdb.set_trace()
+            continue
+        finally:
+            cabinet.quit()
+        log.info('Adding recepit status inn=%s fio=%s info=%s',
+                 cabinet.inn, cabinet.fio, info)
+
+        if not info:
+            info = ('',) * 7
+        else:
+            assert len(info) == 7
+
+        headers = ['inn', 'fio', 'parsed',  # status may be 0/1/2
+                   'report', 'status', 'year', 'month', 'sent_date', 'sent_time', 'result_text']
+        row = [cabinet.inn, cabinet.fio, datetime.now(),
+               info[0], info[1], info[2], info[3], info[4], info[5], info[6]]
+
+        if inn in inn_rows:
+            write_row_by_index_xls(filename, inn_rows[inn], row)
+        else:
+            append_xls(filename, headers, row)
 
 
 def send_outbox(outbox_dir=OUTBOX_DIR, sent_dir=SENT_DIR):
@@ -419,9 +584,11 @@ def send_outbox(outbox_dir=OUTBOX_DIR, sent_dir=SENT_DIR):
         try:
             cabinet.login(keys_map[inn])
             assert cabinet.inn == inn, 'Key inn in store and after login not matched!'
-            cabinet.send_report(filename)
+            cabinet.send_f0103305_report(filename, key_path=keys_map[inn])
         except Exception as e:
             log.exception('Error occured on outbox processing %s %s', filename, repr(e))
+            if DEBUG:
+                import pdb; pdb.set_trace()
             continue
         finally:
             cabinet.quit()
@@ -434,8 +601,8 @@ def send_outbox(outbox_dir=OUTBOX_DIR, sent_dir=SENT_DIR):
 
 if __name__ == '__main__':
     try:
-        func = choice.Menu(['scan_keys', 'get_budget_status', 'send_outbox']).ask()
+        func = choice.Menu(['scan_keys', 'get_budget_status', 'get_receipts_status', 'send_outbox']).ask()
         globals()[func]()
     except Exception as e:
-        print(e)
+        log.exception(repr(e))
     input('DONE. press any key to close')
