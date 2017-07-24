@@ -70,8 +70,10 @@ class Cabinet:
 
         if not driver:
             chrome_options = webdriver.ChromeOptions()
+            chrome_options.add_argument('--lang=en-US')
             chrome_options.add_experimental_option('prefs', {
                 'download.default_directory': self.reports_dir,
+                'safebrowsing.enabled': True,
             })
             driver = webdriver.Chrome(chrome_options=chrome_options)
             driver.set_page_load_timeout(WAIT_TIMEOUT)
