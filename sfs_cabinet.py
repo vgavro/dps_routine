@@ -282,7 +282,7 @@ class Cabinet:
         return parse_receipt(filename)
 
 
-    def send_f0103305_report(self, filename, key_path, password=KEY_PASSWORD):
+    def send_f0103306_report(self, filename, key_path, password=KEY_PASSWORD):
         content = open(filename, 'rb').read()
 
         match = re.search(b'<PERIOD_YEAR>(\d+)</PERIOD_YEAR>', content, re.MULTILINE)
@@ -589,7 +589,7 @@ def send_outbox(outbox_dir=OUTBOX_DIR, sent_dir=SENT_DIR):
         try:
             cabinet.login(keys_map[inn])
             assert cabinet.inn == inn, 'Key inn in store and after login not matched!'
-            cabinet.send_f0103305_report(filename, key_path=keys_map[inn])
+            cabinet.send_f0103306_report(filename, key_path=keys_map[inn])
         except Exception as e:
             log.exception('Error occured on outbox processing %s %s', filename, repr(e))
             if DEBUG:

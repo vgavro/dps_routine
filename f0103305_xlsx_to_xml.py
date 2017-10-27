@@ -23,16 +23,16 @@ DEFAULTS = OrderedDict([
     ('C_DOC', 'F01'),
     ('C_DOC_SUB', '033'),
     ('C_DOC_TYPE', 0),
-    ('C_DOC_VER', 5),
+    ('C_DOC_VER', 6),
     ('C_DOC_CNT', 1),
-    ('HZ', 1),
+    ('HZN', 1),
     ('HNACTL', 0),
 ])
 
 
 def create_xml(data, output_dir='./', encoding='windows-1251'):
     root = ET.Element('DECLAR', {'xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
-                                 'xsi:noNamespaceSchemaLocation': 'F0103305.xsd'})
+                                 'xsi:noNamespaceSchemaLocation': 'F0103306.xsd'})
     head = ET.SubElement(root, 'DECLARHEAD')
     body = ET.SubElement(root, 'DECLARBODY')
 
