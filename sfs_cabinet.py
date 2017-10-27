@@ -256,11 +256,12 @@ class Cabinet:
             sent_time = root.find('DECLARBODY/HTIME').text
             report_type = root.find('DECLARBODY/HDOCKOD').text
             result_text = root.find('DECLARBODY/HRESULT').text
+            doc_state = root.find('DECLARBODY/HDOCSTAN').text
             if result_text in ('Пакет прийнято.', 'Прийнято пакет.'):
                 status = 2
             else:
                 status = 1
-            return report_type, status, year, month, sent_date, sent_time, result_text
+            return report_type, status, year, month, sent_date, sent_time, result_text, doc_state
 
         if os.path.exists(self.receipt_xml_default_path):
             os.remove(self.receipt_xml_default_path)
@@ -552,14 +553,14 @@ def get_receipts_status(filename=RECEIPTS_STATUS_FILENAME):
                  cabinet.inn, cabinet.fio, info)
 
         if not info:
-            info = ('',) * 7
+            info = ('',) * 8
         else:
-            assert len(info) == 7
+            assert len(info) == 8
 
         headers = ['inn', 'fio', 'parsed',  # status may be 0/1/2
-                   'report', 'status', 'year', 'month', 'sent_date', 'sent_time', 'result_text']
+                   'report', 'status', 'year', 'month', 'sent_date', 'sent_time', 'result_text', 'doc_state']
         row = [cabinet.inn, cabinet.fio, datetime.now(),
-               info[0], info[1], info[2], info[3], info[4], info[5], info[6]]
+               info[0], info[1], info[2], info[3], info[4], info[5], info[6], info[7]]
 
         if inn in inn_rows:
             write_row_by_index_xls(filename, inn_rows[inn], row)
