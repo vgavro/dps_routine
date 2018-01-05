@@ -322,6 +322,12 @@ class Cabinet:
 
         self.get_element_by_text('Податкова декларацiя платника єдиного податку - фiзичної особи _ пiдприємця').click()
         self.wait_connected()
+
+        #  Comment lines block below to leace "звітний документ" by default
+        #  document_state = Select(self.get_element('select[title="звітний документ"]'))
+        #  document_state.select_by_value('1')  #  новий звітній документ
+        #  sleep(1)
+
         self.get_element_by_text('Створити ').click()
         self.wait_connected()
         self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/upload.png'

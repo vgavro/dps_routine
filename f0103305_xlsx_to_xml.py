@@ -25,7 +25,7 @@ DEFAULTS = OrderedDict([
     ('C_DOC_TYPE', 0),
     ('C_DOC_VER', 6),
     ('C_DOC_CNT', 1),
-    ('HZN', 1),
+    ('HZ', 1),
     ('HNACTL', 0),
 ])
 
