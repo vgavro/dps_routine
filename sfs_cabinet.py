@@ -14,7 +14,9 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException
-import xlrd, xlwt
+from selenium.webdriver.remote.remote_connection import LOGGER
+import xlrd
+import xlwt
 import xlutils.copy
 import choice
 
@@ -29,7 +31,6 @@ except ImportError:
 logging.basicConfig(level=logging.DEBUG,
                     format='%(asctime)s %(levelname)s %(message)s')
 
-from selenium.webdriver.remote.remote_connection import LOGGER
 LOGGER.setLevel(logging.WARNING)
 
 log = logging.getLogger('sfs')
@@ -103,7 +104,7 @@ class Cabinet:
     def wait_presence(self, selector):
         log.debug('waiting presence %s', selector)
         return WebDriverWait(self.driver, WAIT_TIMEOUT).until(
-           EC.presence_of_element_located((By.CSS_SELECTOR, selector)),
+            EC.presence_of_element_located((By.CSS_SELECTOR, selector)),
         )
 
     def wait_invisible(self, selector):
@@ -178,12 +179,14 @@ class Cabinet:
         self.click('#LoginButton')
         self.wait_connected()
         log.info('logged in inn=%s fio=%s', self.inn, self.fio)
+        sleep(2)  # sleeping after login to wait redirect to new page before new get
+        # self.driver.execute_script("window.stop()")  # now working
 
     def get_budget_status_report(self, payment_id):
         if os.path.exists(self.budget_status_report_default_path):
             os.remove(self.budget_status_report_default_path)
-        self.get('https://cabinet.sfs.gov.ua/cabinet/faces/index.jspx')
-        self.wait_connected()
+        # self.get('https://cabinet.sfs.gov.ua/cabinet/faces/index.jspx')
+        # self.wait_connected()
         self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/ta.jspx')
         self.wait_connected()
 
@@ -210,21 +213,23 @@ class Cabinet:
         self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/'
                                         'microsoft-excel.png?ln=images')
 
-        self.wait_callback(lambda: os.path.exists(self.budget_status_report_default_path))
+        def check_path():
+            return os.path.exists(self.budget_status_report_default_path)
+        self.wait_callback(check_path)
 
         filename = str(self.inn) + '_' + payment_id.replace(' ', '') + '.xls'
         filename = os.path.join(self.reports_dir, filename)
         os.rename(self.budget_status_report_default_path, filename)
         return payment_info_parsed, filename
 
-        #self.click_img_and_wait_invisible('/cabinet/faces/javax.faces.resource/back.png?ln=images')
-        #self.wait_connected()
+        # self.click_img_and_wait_invisible('/cabinet/faces/javax.faces.resource/back.png?ln=images')
+        # self.wait_connected()
 
     def get_budget_status(self):
         def parse_saldo(filename):
             wb = xlrd.open_workbook(filename)
             ws = wb.sheet_by_index(0)
-            status_date_text = ws.row(3)[1].value
+            # status_date_text = ws.row(3)[1].value
             assert ws.row(5)[6].value == 'Сальдо розрахунків', 'Unexpected report format'
             try:
                 saldo = ws.row(6)[6].value or 0
@@ -282,7 +287,6 @@ class Cabinet:
         os.rename(self.receipt_xml_default_path, filename)
         return parse_receipt(filename)
 
-
     def send_f0103306_report(self, filename, key_path, password=KEY_PASSWORD):
         content = open(filename, 'rb').read()
 
@@ -295,8 +299,8 @@ class Cabinet:
         period_month = int(match.group(1))
         assert period_month in (3, 6, 9, 12), 'Unknown PERIOD_MONTH: {}'.format(period_month)
 
-        self.get('https://cabinet.sfs.gov.ua/cabinet/faces/index.jspx')
-        self.wait_connected()
+        # self.get('https://cabinet.sfs.gov.ua/cabinet/faces/index.jspx')
+        # self.wait_connected()
         self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/dp00.jspx')
         self.wait_connected()
         self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/ic_note_add.png'
@@ -314,14 +318,14 @@ class Cabinet:
         select = Select(label.find_element_by_xpath('../../td/select'))
         select.select_by_value(str(period_month - 1))  # months 0...11
 
-
         # this should invoke list loading, not working without it
         # TODO: click not on report, but on some safe place
-        self.get_element_by_text('Податкова декларацiя платника єдиного податку - фiзичної особи _ пiдприємця').click()
+        REPORT_NAME = 'Податкова декларацiя платника єдиного податку - фiзичної особи _ пiдприємця'
+        self.get_element_by_text(REPORT_NAME).click()
         sleep(2)
         self.wait_connected()
 
-        self.get_element_by_text('Податкова декларацiя платника єдиного податку - фiзичної особи _ пiдприємця').click()
+        self.get_element_by_text(REPORT_NAME).click()
         self.wait_connected()
 
         #  Comment lines block below to leace "звітний документ" by default
@@ -461,7 +465,7 @@ def scan_keys(keys_dir=KEYS_DIR):
     log.info('Keys (%s) in %s', len(files), keys_dir)
     for filename in files:
         filename = os.path.abspath(filename)
-        if not filename in keys_map.values():
+        if filename not in keys_map.values():
             log.info('Checking new key %s', filename)
             cabinet = Cabinet()
             try:
@@ -469,7 +473,7 @@ def scan_keys(keys_dir=KEYS_DIR):
             except Exception as e:
                 log.exception('Error occured on key processing %s %s', filename, repr(e))
                 if DEBUG:
-                    import pdb; pdb.set_trace()
+                    import pdb; pdb.set_trace()  # noqa
                 continue
             finally:
                 cabinet.quit()
@@ -504,7 +508,7 @@ def get_budget_status(filename=BUDGET_STATUS_FILENAME):
         except Exception as e:
             log.exception('Error occured on budget processing %s %s', inn, repr(e))
             if DEBUG:
-                import pdb; pdb.set_trace()
+                import pdb; pdb.set_trace()  # noqa
             continue
         finally:
             cabinet.quit()
@@ -551,7 +555,7 @@ def get_receipts_status(filename=RECEIPTS_STATUS_FILENAME):
         except Exception as e:
             log.exception('Error occured on receipt processing %s %s', inn, repr(e))
             if DEBUG:
-                import pdb; pdb.set_trace()
+                import pdb; pdb.set_trace()  # noqa
             continue
         finally:
             cabinet.quit()
@@ -564,7 +568,8 @@ def get_receipts_status(filename=RECEIPTS_STATUS_FILENAME):
             assert len(info) == 8
 
         headers = ['inn', 'fio', 'parsed',  # status may be 0/1/2
-                   'report', 'status', 'year', 'month', 'sent_date', 'sent_time', 'result_text', 'doc_state']
+                   'report', 'status', 'year', 'month', 'sent_date', 'sent_time', 'result_text',
+                   'doc_state']
         row = [cabinet.inn, cabinet.fio, datetime.now(),
                info[0], info[1], info[2], info[3], info[4], info[5], info[6], info[7]]
 
@@ -588,7 +593,7 @@ def send_outbox(outbox_dir=OUTBOX_DIR, sent_dir=SENT_DIR):
             continue
 
         inn = int(match.group(1))
-        if not inn in keys_map:
+        if inn not in keys_map:
             log.error('inn %s not found in keys map (skipping) %s', inn, filename)
             continue
 
@@ -600,7 +605,7 @@ def send_outbox(outbox_dir=OUTBOX_DIR, sent_dir=SENT_DIR):
         except Exception as e:
             log.exception('Error occured on outbox processing %s %s', filename, repr(e))
             if DEBUG:
-                import pdb; pdb.set_trace()
+                import pdb; pdb.set_trace()  # noqa
             continue
         finally:
             cabinet.quit()
@@ -612,8 +617,9 @@ def send_outbox(outbox_dir=OUTBOX_DIR, sent_dir=SENT_DIR):
 
 
 if __name__ == '__main__':
+    funcs = ['scan_keys', 'get_budget_status', 'get_receipts_status', 'send_outbox']
     try:
-        func = choice.Menu(['scan_keys', 'get_budget_status', 'get_receipts_status', 'send_outbox']).ask()
+        func = choice.Menu(funcs).ask()
         globals()[func]()
     except Exception as e:
         log.exception(repr(e))

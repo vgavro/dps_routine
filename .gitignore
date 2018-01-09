@@ -1,1 +1,14 @@
 key_password
+*.swp
+send/
+env/
+outbox/
+reports/
+sent/
+keys/
+tmp/
+__pycache__/
+keys.xls
+budget_status.xls
+receipts_status.xls
+geckodriver.log
