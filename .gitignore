@@ -11,4 +11,5 @@ __pycache__/
 keys.xls
 budget_status.xls
 receipts_status.xls
+payer_info.xls
 geckodriver.log

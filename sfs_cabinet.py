@@ -13,7 +13,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import (NoSuchElementException, TimeoutException)
 from selenium.webdriver.remote.remote_connection import LOGGER
 import xlrd
 import xlwt
@@ -46,6 +46,7 @@ DEBUG = ('--debug' in sys.argv)
 
 KEY_PASSWORD = open(get_relative_path('key_password')).read().strip()
 KEYS_FILENAME = get_relative_path('keys.xls')
+PAYER_INFO_FILENAME = get_relative_path('payer_info.xls')
 BUDGET_STATUS_FILENAME = get_relative_path('budget_status.xls')
 RECEIPTS_STATUS_FILENAME = get_relative_path('receipts_status.xls')
 KEYS_DIR = get_relative_path('./keys')
@@ -64,6 +65,7 @@ class Cabinet:
         self.sent_dir = SENT_DIR
         self.budget_status_report_default_path = os.path.join(self.reports_dir, 'pa.xls')
         self.receipt_xml_default_path = os.path.join(self.reports_dir, 'data.xml')
+        self.card_payer_default_path = os.path.join(self.reports_dir, 'card_pp.html')
 
         for dir_ in [self.reports_dir, self.outbox_dir, self.sent_dir]:
             if not os.path.exists(dir_):
@@ -93,12 +95,20 @@ class Cabinet:
     def get_element(self, selector):
         return self.driver.find_element_by_css_selector(selector)
 
-    def get_element_by_text(self, text):
+    def get_element_by_text(self, text, wait=False):
         xpath = "//*[text() = '{}']".format(text)
+        if wait:
+            WebDriverWait(self.driver, WAIT_TIMEOUT).until(
+                EC.visibility_of_element_located((By.XPATH, xpath)),
+            )
         return self.driver.find_element_by_xpath(xpath)
 
-    def get_element_by_text_contains(self, text):
+    def get_element_by_text_contains(self, text, wait=False):
         xpath = "//*[text()[contains(., '{}')]]".format(text)
+        if wait:
+            WebDriverWait(self.driver, WAIT_TIMEOUT).until(
+                EC.visibility_of_element_located((By.XPATH, xpath)),
+            )
         return self.driver.find_element_by_xpath(xpath)
 
     def wait_presence(self, selector):
@@ -177,7 +187,13 @@ class Cabinet:
     def login(self, key_path, password=KEY_PASSWORD):
         self.inn, self.fio = self.pre_login_cert(key_path, password)
         self.click('#LoginButton')
-        self.wait_connected()
+        try:
+            self.wait_connected()
+        except TimeoutException:
+            if self.driver.current_url != 'https://cabinet.sfs.gov.ua/':
+                raise
+            # in other case we wasn't waiting because of redirect
+
         log.info('logged in inn=%s fio=%s', self.inn, self.fio)
         sleep(2)  # sleeping after login to wait redirect to new page before new get
         # self.driver.execute_script("window.stop()")  # now working
@@ -286,6 +302,25 @@ class Cabinet:
         filename = os.path.join(self.reports_dir, filename)
         os.rename(self.receipt_xml_default_path, filename)
         return parse_receipt(filename)
+
+    def get_payer_info(self):
+        if os.path.exists(self.card_payer_default_path):
+            os.remove(self.card_payer_default_path)
+
+        self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/rg_ext.jspx')
+        self.get_element_by_text('ПЕРЕГЛЯД ДАНИХ', wait=True).click()
+        self.get_element_by_text('ДРУКУВАТИ', wait=True).click()
+
+        self.wait_callback(lambda: os.path.exists(self.card_payer_default_path))
+        filename = str(self.inn) + '_card_payer.html'
+        filename = os.path.join(self.reports_dir, filename)
+        os.rename(self.card_payer_default_path, filename)
+        content = open(filename, 'r').read()
+        data = dict(re.findall('<tr><td[^>]*>([^>]+)</td><td[^>]+>([^>]+)</td></tr>', content))
+        for k in data:
+            if data[k] == '&nbsp':
+                data[k] = ''
+        return data
 
     def send_f0103306_report(self, filename, key_path, password=KEY_PASSWORD):
         content = open(filename, 'rb').read()
@@ -525,6 +560,67 @@ def get_budget_status(filename=BUDGET_STATUS_FILENAME):
                    ])
 
 
+def get_payer_info(filename=PAYER_INFO_FILENAME):
+    log.info('Get payer info %s', filename)
+
+    headers = [
+        'Податковий номер',
+        'Прізвище, ім’я та по батькові',
+        'Код ДПІ за основним місцем обліку',
+        'Найменування ДПІ за основним місцем обліку',
+        'Дата взяття на облік платника податків',
+        'Номер взяття на облік платника податків',
+        'Особливий режим',
+        'Дата зняття з обліку',
+        'Адреса',
+        'Телефони',
+        'Дата переходу на спрощену систему оподаткування',
+        'Група',
+        'Ставка',
+        'Дата анулювання',
+        'Дата взяття на облік',
+        'Реєстраційний номер платника єдиного внеску',
+        'Клас професійного ризику виробництва',
+        'Код КВЕД по якому призначено клас професійного ризику',
+        'Дата зняття з обліку ',
+        'Код ДПІ за неосновним місцем обліку',
+    ]
+
+    keys_map = KeysMap()
+    processed = []
+
+    if os.path.exists(filename):
+        wb = xlrd.open_workbook(filename)
+        ws = wb.sheet_by_index(0)
+        for i in range(1, ws.nrows):
+            inn = ws.row(i)[0].value
+            if inn:
+                processed.append(int(inn))
+
+    to_process = set(keys_map) - set(processed)
+    log.info('Processing %s (processed already %s)', len(to_process), len(set(processed)))
+
+    for inn in to_process:
+        cabinet = Cabinet()
+        try:
+            cabinet.login(keys_map[inn])
+            assert cabinet.inn == inn, 'Key inn in store and after login not matched!'
+            info = cabinet.get_payer_info()
+        except Exception as e:
+            log.exception('Error occured on payer info processing %s %s', inn, repr(e))
+            if DEBUG:
+                import pdb; pdb.set_trace()  # noqa
+            continue
+        finally:
+            cabinet.quit()
+        log.info('Adding payer info inn=%s fio=%s info=%s',
+                 cabinet.inn, cabinet.fio, info)
+        data = [info.get(k, '') for k in headers]
+        append_xls(filename,
+                   ['inn', 'fio', 'parsed'] + headers,
+                   [cabinet.inn, cabinet.fio, datetime.now()] + data)
+
+
 def get_receipts_status(filename=RECEIPTS_STATUS_FILENAME):
     log.info('Get receipts status %s', filename)
 
@@ -617,7 +713,8 @@ def send_outbox(outbox_dir=OUTBOX_DIR, sent_dir=SENT_DIR):
 
 
 if __name__ == '__main__':
-    funcs = ['scan_keys', 'get_budget_status', 'get_receipts_status', 'send_outbox']
+    funcs = ['scan_keys', 'get_budget_status', 'get_receipts_status', 'get_payer_info',
+             'send_outbox']
     try:
         func = choice.Menu(funcs).ask()
         globals()[func]()
