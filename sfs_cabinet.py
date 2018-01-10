@@ -314,8 +314,12 @@ class Cabinet:
         self.wait_callback(lambda: os.path.exists(self.card_payer_default_path))
         filename = str(self.inn) + '_card_payer.html'
         filename = os.path.join(self.reports_dir, filename)
+        try:
+            os.remove(filename)
+        except Exception:
+            pass
         os.rename(self.card_payer_default_path, filename)
-        content = open(filename, 'r').read()
+        content = open(filename, 'rb').read().decode('utf8', errors='ignore')
         data = dict(re.findall('<tr><td[^>]*>([^>]+)</td><td[^>]+>([^>]+)</td></tr>', content))
         for k in data:
             if data[k] == '&nbsp':
