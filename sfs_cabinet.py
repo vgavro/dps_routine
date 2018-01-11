@@ -41,6 +41,11 @@ def get_relative_path(path):
     return os.path.abspath(os.path.join(dirname, path))
 
 
+def maybe_remove(path):
+    if os.path.exists(path):
+        os.remove(path)
+
+
 WAIT_TIMEOUT = 20
 DEBUG = ('--debug' in sys.argv)
 
@@ -199,8 +204,7 @@ class Cabinet:
         # self.driver.execute_script("window.stop()")  # now working
 
     def get_budget_status_report(self, payment_id):
-        if os.path.exists(self.budget_status_report_default_path):
-            os.remove(self.budget_status_report_default_path)
+        maybe_remove(self.budget_status_report_default_path)
         # self.get('https://cabinet.sfs.gov.ua/cabinet/faces/index.jspx')
         # self.wait_connected()
         self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/ta.jspx')
@@ -235,6 +239,7 @@ class Cabinet:
 
         filename = str(self.inn) + '_' + payment_id.replace(' ', '') + '.xls'
         filename = os.path.join(self.reports_dir, filename)
+        maybe_remove(filename)
         os.rename(self.budget_status_report_default_path, filename)
         return payment_info_parsed, filename
 
@@ -300,6 +305,7 @@ class Cabinet:
         self.wait_callback(lambda: os.path.exists(self.receipt_xml_default_path))
         filename = str(self.inn) + '_J1499201.xls'
         filename = os.path.join(self.reports_dir, filename)
+        maybe_remove(filename)
         os.rename(self.receipt_xml_default_path, filename)
         return parse_receipt(filename)
 
@@ -314,10 +320,7 @@ class Cabinet:
         self.wait_callback(lambda: os.path.exists(self.card_payer_default_path))
         filename = str(self.inn) + '_card_payer.html'
         filename = os.path.join(self.reports_dir, filename)
-        try:
-            os.remove(filename)
-        except Exception:
-            pass
+        maybe_remove(filename)
         os.rename(self.card_payer_default_path, filename)
         content = open(filename, 'rb').read().decode('utf8', errors='ignore')
         data = dict(re.findall('<tr><td[^>]*>([^>]+)</td><td[^>]+>([^>]+)</td></tr>', content))
@@ -712,7 +715,9 @@ def send_outbox(outbox_dir=OUTBOX_DIR, sent_dir=SENT_DIR):
 
         log.info('Sent report inn=%s fio=%s filename=%s', cabinet.inn, cabinet.fio,
                  os.path.basename(filename))
-        os.rename(filename, os.path.join(sent_dir, os.path.basename(filename)))
+        dest = os.path.join(sent_dir, os.path.basename(filename))
+        maybe_remove(dest)
+        os.rename(filename, dest)
         # TODO: add to xls log, or rename budget_status to just status?
 
 
