@@ -207,10 +207,12 @@ class Cabinet:
         maybe_remove(self.budget_status_report_default_path)
         # self.get('https://cabinet.sfs.gov.ua/cabinet/faces/index.jspx')
         # self.wait_connected()
+        # getting first url to reset state of second one
         self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/ta.jspx')
-        self.wait_connected()
+        self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/ta_ext.jspx')
+        # self.wait_connected()
 
-        e = self.get_element_by_text_contains(payment_id)
+        e = self.get_element_by_text_contains(payment_id, wait=True)
         payment_info = e.find_element_by_xpath('../../../../..').text
 
         assert payment_info.startswith('ОДФС'), 'Unknown payment info: {}'.format(payment_info)
@@ -228,7 +230,7 @@ class Cabinet:
             payment_info_parsed.append(match.group(1))
 
         e.click()
-        self.wait_connected()
+        # self.wait_connected()
 
         self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/'
                                         'microsoft-excel.png?ln=images')
@@ -289,17 +291,17 @@ class Cabinet:
                 status = 1
             return report_type, status, year, month, sent_date, sent_time, result_text, doc_state
 
-        if os.path.exists(self.receipt_xml_default_path):
-            os.remove(self.receipt_xml_default_path)
+        maybe_remove(self.receipt_xml_default_path)
 
-        self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/dm03.jspx')
-        self.wait_connected()
-        sleep(2)
+        self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/dm03_ext.jspx')
+        # self.wait_connected()
+        # sleep(2)
         try:
             self.get_element_by_text_contains('[J1499201]').click()
         except NoSuchElementException:
+            # import pdb; pdb.set_trace()
             return None
-        self.wait_connected()
+        # self.wait_connected()
         self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/'
                                         'xml.png?ln=images')
         self.wait_callback(lambda: os.path.exists(self.receipt_xml_default_path))
