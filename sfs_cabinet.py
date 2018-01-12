@@ -410,7 +410,6 @@ class Cabinet:
         assert e.text == 'Завантажено успішно', e.text
 
     def _send_report_verify_sign_send(self, key_path, password):
-        import pdb; pdb.set_trace()
         self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/checked.png?ln=images')
         sleep(1)
         self.wait_connected()

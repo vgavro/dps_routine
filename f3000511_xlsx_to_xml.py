@@ -49,7 +49,7 @@ DEFAULTS = OrderedDict([
 HEAD_DEFAULTS = _extend_dict(DEFAULTS, [
     ('C_DOC_SUB', '005'),
     ('HKSTI', lambda d: d['C_STI_ORIG']),
-    ('HBOSS', lambda d: d['HNAME']),
+    ('HBOS', lambda d: d['HNAME']),
     ('_linked_doc_type', 2),
 ])
 
@@ -109,7 +109,6 @@ def create_element(key, value):
 
 def create_filename(data):
     data['PERIOD_MONTH'] = int(data['PERIOD_MONTH'])  # for proper filename formatting
-    print(data)
     return FILENAME_TEMPLATE.format(**data)
 
 
@@ -213,6 +212,7 @@ def main(xlsx_filename='f3000511.xlsx',
                 data_ = SUBREPORT_DEFAULTS[c_doc_sub].copy()
                 data_.update({
                     'HBOS': data.get('HNAME'),
+                    'D_FILL': data.get('D_FILL'),
                 })
                 data_.update(map_[data['TIN']])
                 for k in ['C_STI_ORIG']:
