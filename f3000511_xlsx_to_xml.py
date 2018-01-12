@@ -3,6 +3,7 @@
 import xml.etree.cElementTree as ET
 import os.path
 from collections import OrderedDict
+import traceback
 
 import xlrd
 
@@ -112,8 +113,9 @@ def create_filename(data):
 
 
 def create_xml(data, linked_data=[], output_dir='./', encoding='windows-1251'):
+    version = data['C_DOC'] + data['C_DOC_SUB'] + str(data['C_DOC_VER'])
     root = ET.Element('DECLAR', {'xmlns:xsi': 'http://www.w3.org/2001/XMLSchema-instance',
-                                 'xsi:noNamespaceSchemaLocation': 'F3000511.xsd'})
+                                 'xsi:noNamespaceSchemaLocation': '{}.xsd'.format(version)})
     head = ET.SubElement(root, 'DECLARHEAD')
     body = ET.SubElement(root, 'DECLARBODY')
 
@@ -122,7 +124,8 @@ def create_xml(data, linked_data=[], output_dir='./', encoding='windows-1251'):
             continue
 
         if callable(value):
-            value = value(data)
+            data[key] = value(data)
+            value = data[key]
 
         if ((not value and key not in ['C_DOC_TYPE']) or
            key.startswith('_')):
@@ -243,6 +246,6 @@ if __name__ == '__main__':
             else:
                 main(filename)
     except Exception as e:
-        # raise
+        traceback.print_exc()
         print('Error', repr(e))
     input('DONE. press any key to close')

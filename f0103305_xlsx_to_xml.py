@@ -3,6 +3,7 @@
 import xml.etree.cElementTree as ET
 import os.path
 from collections import OrderedDict
+import traceback
 
 import xlrd
 
@@ -112,6 +113,6 @@ if __name__ == '__main__':
             else:
                 main(filename)
     except Exception as e:
-	    raise
+        traceback.print_exc()
         print('Error', repr(e))
     input('DONE. press any key to close')
