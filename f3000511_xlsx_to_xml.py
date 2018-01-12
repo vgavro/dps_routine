@@ -118,6 +118,9 @@ def create_xml(data, linked_data=[], output_dir='./', encoding='windows-1251'):
     body = ET.SubElement(root, 'DECLARBODY')
 
     for key, value in data.items():
+        if not key:
+            continue
+
         if callable(value):
             value = value(data)
 
@@ -183,7 +186,6 @@ def main(xlsx_filename='f3000511.xlsx',
 
         for i in range(data_start_row_index, sheet.nrows):
             data = OrderedDict(zip(fields, map(parse_value, sheet.row_values(i))))
-            print(data)
             rv[data['TIN']] = data
         return rv
 
@@ -241,6 +243,6 @@ if __name__ == '__main__':
             else:
                 main(filename)
     except Exception as e:
-        raise
+        # raise
         print('Error', repr(e))
     input('DONE. press any key to close')

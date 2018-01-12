@@ -341,13 +341,13 @@ class Cabinet:
         assert len(subreports) <= 2, 'Found subreports more than possible: {}'.format(subreports)
 
         subreports_map = {}
-        for filename in subreports:
-            if 'F30501' in filename:
-                subreports_map['F3040111'] = os.path.join(self.outbox_dir, filename)
-            elif 'F30502' in filename:
-                subreports_map['F3040411'] = os.path.join(self.outbox_dir, filename)
+        for filename_ in subreports:
+            if 'F30501' in filename_:
+                subreports_map['F3040111'] = os.path.abspath(os.path.join(self.outbox_dir, filename_))
+            elif 'F30502' in filename_:
+                subreports_map['F3040411'] = os.path.abspath(os.path.join(self.outbox_dir, filename_))
             else:
-                raise AssertionError('Unknown subreport type: {}'.format(filename))
+                raise AssertionError('Unknown subreport type: {}'.format(filename_))
 
         self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/dp00.jspx')
         self.wait_connected()
@@ -397,6 +397,7 @@ class Cabinet:
         assert e.text == 'Завантажено успішно', e.text
 
     def _send_report_verify_sign_send(self, key_path, password):
+        import pdb; pdb.set_trace()
         self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/checked.png?ln=images')
         sleep(1)
         self.wait_connected()

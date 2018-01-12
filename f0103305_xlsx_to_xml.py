@@ -112,5 +112,6 @@ if __name__ == '__main__':
             else:
                 main(filename)
     except Exception as e:
+	    raise
         print('Error', repr(e))
     input('DONE. press any key to close')
