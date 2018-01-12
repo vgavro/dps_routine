@@ -343,9 +343,9 @@ class Cabinet:
         subreports_map = {}
         for filename_ in subreports:
             if 'F30501' in filename_:
-                subreports_map['F3040111'] = os.path.abspath(os.path.join(self.outbox_dir, filename_))
+                subreports_map['F3050111'] = os.path.abspath(os.path.join(self.outbox_dir, filename_))
             elif 'F30502' in filename_:
-                subreports_map['F3040411'] = os.path.abspath(os.path.join(self.outbox_dir, filename_))
+                subreports_map['F3050211'] = os.path.abspath(os.path.join(self.outbox_dir, filename_))
             else:
                 raise AssertionError('Unknown subreport type: {}'.format(filename_))
 
@@ -361,7 +361,7 @@ class Cabinet:
         select.select_by_value('13')  # this means F30, improve it in YOUR free time
 
         self.wait_connected()
-        self.get_element_by_text('F3000411', wait=True).click()
+        self.get_element_by_text('F3000511', wait=True).click()
         self.wait_connected()
 
         for k in subreports_map:

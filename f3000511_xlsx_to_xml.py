@@ -210,6 +210,9 @@ def main(xlsx_filename='f3000511.xlsx',
         for c_doc_sub, map_ in linked_data_map.items():
             if data['TIN'] in map_:
                 data_ = SUBREPORT_DEFAULTS[c_doc_sub].copy()
+                data_.update({
+                    'HBOS': data.get('HNAME'),
+                })
                 data_.update(map_[data['TIN']])
                 for k in ['C_STI_ORIG']:
                     data_[k] = data[k]
