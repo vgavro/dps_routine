@@ -331,6 +331,100 @@ class Cabinet:
                 data[k] = ''
         return data
 
+    def send_f3000511_report(self, filename, key_path, password=KEY_PASSWORD):
+        content = open(filename, 'rb').read()
+        subreports = re.findall(b'<FILENAME>([\w\d\.]+)</FILENAME>', content)
+        subreports = [f.decode() for f in subreports]
+        if not all(os.path.exists(os.path.join(self.outbox_dir, f)) for f in subreports):
+            raise AssertionError('Not all files exists in outbox dir: {}'.format(subreports))
+        assert len(subreports), 'No subreports found'
+        assert len(subreports) <= 2, 'Found subreports more than possible: {}'.format(subreports)
+
+        subreports_map = {}
+        for filename in subreports:
+            if 'F30501' in filename:
+                subreports_map['F3040111'] = os.path.join(self.outbox_dir, filename)
+            elif 'F30502' in filename:
+                subreports_map['F3040411'] = os.path.join(self.outbox_dir, filename)
+            else:
+                raise AssertionError('Unknown subreport type: {}'.format(filename))
+
+        self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/dp00.jspx')
+        self.wait_connected()
+        self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/ic_note_add.png'
+                                        '?ln=images')
+        self.wait_connected()
+
+        label = self.get_element_by_text('Тип форми')
+        assert label.tag_name == 'label'
+        select = Select(label.find_element_by_xpath('../../td/select'))
+        select.select_by_value('13')  # this means F30, improve it in YOUR free time
+
+        self.wait_connected()
+        self.get_element_by_text('F3000411', wait=True).click()
+        self.wait_connected()
+
+        for k in subreports_map:
+            (self.get_element_by_text(k)
+             .find_element_by_xpath('../div').click())
+
+        sleep(1)  # just in case...
+        self.get_element_by_text('Створити ').click()
+        self.wait_connected()
+
+        self._send_report_upload(filename)
+
+        for report_name, filename in subreports_map.items():
+            self.get_element_by_text(report_name).click()
+            self.wait_connected()
+            self._send_report_upload(filename)
+
+        self.wait_connected()
+        self._send_report_verify_sign_send(key_path, password)
+        return list(subreports_map.values())
+
+    def _send_report_upload(self, filename):
+        self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/upload.png'
+                                        '?ln=images')
+        sleep(1)
+        self.wait_connected()
+        sleep(1)
+        self.send_keys('input[type="file"]', filename)
+        sleep(1)
+        self.wait_connected()
+        sleep(1)
+        e = self.get_element('.ui-pnotify-container')
+        assert e.text == 'Завантажено успішно', e.text
+
+    def _send_report_verify_sign_send(self, key_path, password):
+        self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/checked.png?ln=images')
+        sleep(1)
+        self.wait_connected()
+        sleep(1)  # well, you may remove this shit if you have enough time for cabinet debug...
+        try:
+            e = self.get_element('.ui-pnotify-container')
+        except NoSuchElementException:
+            raise RuntimeError('Звіт має помилки (не критичні?)')
+        assert e.text == 'Помилок немає', e.text
+
+        self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/sign.png?ln=images')
+        self.wait_connected()
+
+        self.get_element_by_text('Підпис документа  приватним підприємцем')
+        # checked that all ok
+
+        inn, fio = self.enter_cert(key_path, password)
+        assert inn == self.inn
+        assert fio == self.fio
+
+        self.click('#LoginButton')
+        sleep(1)
+        self.wait_connected()
+        sleep(1)  # yeah... i know...
+        e = self.wait_visible('.ui-pnotify-container')
+        assert str(e.text).startswith('Підписано успішно')
+        return e.text
+
     def send_f0103306_report(self, filename, key_path, password=KEY_PASSWORD):
         content = open(filename, 'rb').read()
 
@@ -379,45 +473,9 @@ class Cabinet:
 
         self.get_element_by_text('Створити ').click()
         self.wait_connected()
-        self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/upload.png'
-                                        '?ln=images')
-        sleep(1)
-        self.wait_connected()
-        sleep(1)
-        self.send_keys('input[type="file"]', filename)
-        sleep(1)
-        self.wait_connected()
-        sleep(1)
-        e = self.get_element('.ui-pnotify-container')
-        assert e.text == 'Завантажено успішно', e.text
 
-        self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/checked.png?ln=images')
-        sleep(1)
-        self.wait_connected()
-        sleep(1)  # well, you may remove this shit if you have enough time for cabinet debug...
-        try:
-            e = self.get_element('.ui-pnotify-container')
-        except NoSuchElementException:
-            raise RuntimeError('Звіт має помилки (не критичні?)')
-        assert e.text == 'Помилок немає', e.text
-
-        self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/sign.png?ln=images')
-        self.wait_connected()
-
-        self.get_element_by_text('Підпис документа  приватним підприємцем')
-        # checked that all ok
-
-        inn, fio = self.enter_cert(key_path, password)
-        assert inn == self.inn
-        assert fio == self.fio
-
-        self.click('#LoginButton')
-        sleep(1)
-        self.wait_connected()
-        sleep(1)  # yeah... i know...
-        e = self.wait_visible('.ui-pnotify-container')
-        assert str(e.text).startswith('Підписано успішно')
-        return e.text
+        self._send_report_upload(filename)
+        self._send_report_verify_sign_send(key_path, password)
 
 
 # FitSheetWrapper from https://stackoverflow.com/a/9137934/450103
@@ -691,8 +749,9 @@ def send_outbox(outbox_dir=OUTBOX_DIR, sent_dir=SENT_DIR):
 
     for filename in files:
         filename = os.path.abspath(filename)
+        content = open(filename, 'rb').read()
 
-        match = re.search(b'<TIN>(\d+)</TIN>', open(filename, 'rb').read(), re.MULTILINE)
+        match = re.search(b'<TIN>(\d+)</TIN>', content, re.MULTILINE)
         if not match:
             log.error('Could not find inn (skipping) %s', filename)
             continue
@@ -702,11 +761,28 @@ def send_outbox(outbox_dir=OUTBOX_DIR, sent_dir=SENT_DIR):
             log.error('inn %s not found in keys map (skipping) %s', inn, filename)
             continue
 
+        match = re.search(b'<C_DOC>([\w\d]+)</C_DOC>', content, re.MULTILINE)
+        if not match:
+            log.error('%s: report type not found (skipping) %s', inn, filename)
+            continue
+        report_type = match.group(1).decode().upper()
+        assert report_type in ['F30', 'F01'], report_type
+
+        if report_type == 'F30':
+            match = re.search(b'<C_DOC_SUB>(\d+)</C_DOC_SUB>', content, re.MULTILINE)
+            if int(match.group(1)) != 5:
+                continue  # this is subreport, so processing only head report
+
         cabinet = Cabinet()
         try:
             cabinet.login(keys_map[inn])
             assert cabinet.inn == inn, 'Key inn in store and after login not matched!'
-            cabinet.send_f0103306_report(filename, key_path=keys_map[inn])
+            if report_type == 'F01':
+                subreports = cabinet.send_f0103306_report(filename, key_path=keys_map[inn])
+            elif report_type == 'F30':
+                subreports = cabinet.send_f3000511_report(filename, key_path=keys_map[inn])
+            else:
+                raise AssertionError('Unknown report type: {}'.format(report_type))
         except Exception as e:
             log.exception('Error occured on outbox processing %s %s', filename, repr(e))
             if DEBUG:
@@ -717,10 +793,11 @@ def send_outbox(outbox_dir=OUTBOX_DIR, sent_dir=SENT_DIR):
 
         log.info('Sent report inn=%s fio=%s filename=%s', cabinet.inn, cabinet.fio,
                  os.path.basename(filename))
-        dest = os.path.join(sent_dir, os.path.basename(filename))
-        maybe_remove(dest)
-        os.rename(filename, dest)
-        # TODO: add to xls log, or rename budget_status to just status?
+        for filename in ([filename] + (subreports and list(subreports) or [])):
+            dest = os.path.join(sent_dir, os.path.basename(filename))
+            maybe_remove(dest)
+            os.rename(filename, dest)
+            # TODO: add to xls log, or rename budget_status to just status?
 
 
 if __name__ == '__main__':
