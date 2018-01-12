@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import xml.etree.cElementTree as ET
-from datetime import datetime
 import os.path
 from collections import OrderedDict
 
@@ -72,7 +71,7 @@ def create_xml(data, output_dir='./', encoding='windows-1251'):
     print('Created {}'.format(filename))
 
 
-def main(xlsx_filename='Книга1.xlsx', sheet_index=0,
+def main(xlsx_filename='f0103305.xlsx', sheet_index=0,
          fields_row_index=1, data_start_row_index=2, supress_exc=False):
 
     book = xlrd.open_workbook(xlsx_filename)
@@ -107,7 +106,7 @@ if __name__ == '__main__':
         if len(argv) > 1:
             main(argv[1])
         else:
-            filename = input('Enter filename: [default="Книга1.xlsx"]')
+            filename = input('Enter filename: [default="f0103305.xlsx"]')
             if not filename:
                 main()
             else:
