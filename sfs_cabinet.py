@@ -469,6 +469,12 @@ class Cabinet:
         select = Select(label.find_element_by_xpath('../../td/select'))
         select.select_by_value(str(period_month - 1))  # months 0...11
 
+        label = self.get_element_by_text('Тип форми')
+        assert label.tag_name == 'label'
+        select = Select(label.find_element_by_xpath('../../td/select'))
+        select.select_by_value('1')  # this means F01, improve it in YOUR free time
+        self.wait_connected()
+
         # this should invoke list loading, not working without it
         # TODO: click not on report, but on some safe place
         REPORT_NAME = 'Податкова декларацiя платника єдиного податку - фiзичної особи _ пiдприємця'
