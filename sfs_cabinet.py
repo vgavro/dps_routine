@@ -762,6 +762,8 @@ def send_outbox(outbox_dir=OUTBOX_DIR, sent_dir=SENT_DIR):
 
     for filename in files:
         filename = os.path.abspath(filename)
+        if not os.path.exists(filename):
+            continue  # this was subreport and was processed already
         content = open(filename, 'rb').read()
 
         match = re.search(b'<TIN>(\d+)</TIN>', content, re.MULTILINE)
