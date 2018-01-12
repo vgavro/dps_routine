@@ -13,7 +13,8 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import (NoSuchElementException, TimeoutException)
+from selenium.common.exceptions import (
+    NoSuchElementException, TimeoutException, ElementNotVisibleException)
 from selenium.webdriver.remote.remote_connection import LOGGER
 import xlrd
 import xlwt
@@ -389,10 +390,22 @@ class Cabinet:
         sleep(1)
         self.wait_connected()
         sleep(1)
+        try:
+            self.get_element_by_text('Оновити ...').click()
+            sleep(1)
+        except NoSuchElementException:
+            pass
+        self.wait_connected()
         self.send_keys('input[type="file"]', filename)
         sleep(1)
         self.wait_connected()
+        try:
+            self.get_element_by_text('OK').click()
+            self.wait_connected()
+        except (NoSuchElementException, ElementNotVisibleException):
+            pass
         sleep(1)
+        self.wait_connected()
         e = self.get_element('.ui-pnotify-container')
         assert e.text == 'Завантажено успішно', e.text
 

@@ -43,12 +43,13 @@ DEFAULTS = OrderedDict([
     ('HZY', 2017),
     ('HZB', 1),
     ('HTIN', lambda d: d['TIN']),
+    ('HFILL', lambda d: d['D_FILL']),
 ])
 
 HEAD_DEFAULTS = _extend_dict(DEFAULTS, [
     ('C_DOC_SUB', '005'),
     ('HKSTI', lambda d: d['C_STI_ORIG']),
-    ('HFILL', lambda d: d['D_FILL']),
+    ('HBOSS', lambda d: d['HNAME']),
     ('_linked_doc_type', 2),
 ])
 
