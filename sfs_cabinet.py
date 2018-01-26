@@ -433,6 +433,9 @@ class Cabinet:
         self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/sign.png?ln=images')
         self.wait_connected()
 
+        sleep(2)
+        # TODO: remove this check, and add checking for new loader
+        # (wait_connected seems not working)
         self.get_element_by_text('Підпис документа  приватним підприємцем')
         # checked that all ok
 
