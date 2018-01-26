@@ -47,7 +47,7 @@ def maybe_remove(path):
         os.remove(path)
 
 
-WAIT_TIMEOUT = 10
+WAIT_TIMEOUT = 20
 DEBUG = ('--debug' in sys.argv)
 
 KEY_PASSWORD = open(get_relative_path('key_password')).read().strip()
@@ -184,7 +184,7 @@ class Cabinet:
         return int(inn), fio
 
     def pre_login_cert(self, cert_path, password=KEY_PASSWORD):
-        self.get('https://cabinet.sfs.gov.ua/cabinet/faces/login.jspx')
+        self.get('https://cabinet.sfs.gov.ua/login')
 
         self.wait_presence('.blockUI.blockOverlay')
         self.wait_invisible('.blockUI.blockOverlay')
