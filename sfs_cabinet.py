@@ -184,9 +184,10 @@ class Cabinet:
         return int(inn), fio
 
     def pre_login_cert(self, cert_path, password=KEY_PASSWORD):
+        # self.get('https://cabinet.sfs.gov.ua/cabinet/faces/login.jspx')
         self.get('https://cabinet.sfs.gov.ua/login')
 
-        self.wait_presence('.blockUI.blockOverlay')
+        # self.wait_presence('.blockUI.blockOverlay')
         self.wait_invisible('.blockUI.blockOverlay')
         return self.enter_cert(cert_path, password)
 
@@ -341,12 +342,15 @@ class Cabinet:
         assert len(subreports), 'No subreports found'
         assert len(subreports) <= 2, 'Found subreports more than possible: {}'.format(subreports)
 
+        def create_filename(filename):
+            return os.path.abspath(os.path.join(self.outbox_dir, filename))
+
         subreports_map = {}
         for filename_ in subreports:
             if 'F30501' in filename_:
-                subreports_map['F3050111'] = os.path.abspath(os.path.join(self.outbox_dir, filename_))
+                subreports_map['F3050111'] = create_filename(filename_)
             elif 'F30502' in filename_:
-                subreports_map['F3050211'] = os.path.abspath(os.path.join(self.outbox_dir, filename_))
+                subreports_map['F3050211'] = create_filename(filename_)
             else:
                 raise AssertionError('Unknown subreport type: {}'.format(filename_))
 
