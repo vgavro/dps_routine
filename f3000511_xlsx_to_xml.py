@@ -236,6 +236,7 @@ def main(xlsx_filename='f3000511.xlsx',
             if not supress_exc:
                 raise
             print('SKIPPED {}: {}: {!r}'.format(i, data, exc))
+            traceback.print_exc()
 
 
 if __name__ == '__main__':
