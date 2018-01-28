@@ -77,17 +77,17 @@ SUBREPORT_MONTH_VALUES = {
 SUBREPORT_DEFAULTS = {
     '501': _extend_dict(_SUBREPORT_DEFAULTS, [
         ('C_DOC_SUB', '501'),
-        ('R01G2', lambda d: sum(d.get('R0{:02d}G2'.format(x), 0) for x in range(1, 13))),
-        ('R01G3', lambda d: sum(d.get('R0{:02d}G3'.format(x), 0) for x in range(1, 13))),
-        ('R01G5', lambda d: sum(d.get('R0{:02d}G5'.format(x), 0) for x in range(1, 13))),
+        ('R01G2', lambda d: sum(int(d.get('R0{:02d}G2'.format(x), 0) or 0) for x in range(1, 13))),
+        ('R01G3', lambda d: sum(int(d.get('R0{:02d}G3'.format(x), 0) or 0) for x in range(1, 13))),
+        ('R01G5', lambda d: sum(int(d.get('R0{:02d}G5'.format(x), 0) or 0) for x in range(1, 13))),
         ('R02G1', 22),
         ('R02G2', lambda d: d['R01G5']),
 
     ]),
     '502': _extend_dict(_SUBREPORT_DEFAULTS, [
         ('C_DOC_SUB', '502'),
-        ('R01G2', lambda d: sum(d.get('R0{:02d}G2'.format(x), 0) for x in range(1, 13))),
-        ('R01G4', lambda d: sum(d.get('R0{:02d}G4'.format(x), 0) for x in range(1, 13))),
+        ('R01G2', lambda d: sum(int(d.get('R0{:02d}G2'.format(x), 0) or 0) for x in range(1, 13))),
+        ('R01G4', lambda d: sum(int(d.get('R0{:02d}G4'.format(x), 0) or 0) for x in range(1, 13))),
         ('R02G1', 22),
         ('R02G2', lambda d: d['R01G4']),
     ]),
@@ -164,7 +164,7 @@ def create_xml(data, linked_data=[], output_dir='./', encoding='windows-1251'):
 
 
 def main(xlsx_filename='f3000511.xlsx',
-         fields_row_index=0, data_start_row_index=2, supress_exc=False):
+         fields_row_index=0, data_start_row_index=2, supress_exc=True):
 
     output_dir = os.path.basename(xlsx_filename) + '_xml'
     output_dir = os.path.join(os.path.dirname(xlsx_filename), output_dir)
@@ -228,14 +228,14 @@ def main(xlsx_filename='f3000511.xlsx',
                 fld = {'501': 'R001G3', '502': 'R002G3'}.get(c_doc_sub)
                 data[fld] = 1
 
-    try:
-        create_xml(data, linked_data, output_dir)
-        for data_ in linked_data:
-            create_xml(data_, [data], output_dir)
-    except Exception as exc:
-        if not supress_exc:
-            raise
-        print('SKIPPED {}: {}: {}'.format(i, data, exc))
+        try:
+            create_xml(data, linked_data, output_dir)
+            for data_ in linked_data:
+                create_xml(data_, [data], output_dir)
+        except Exception as exc:
+            if not supress_exc:
+                raise
+            print('SKIPPED {}: {}: {!r}'.format(i, data, exc))
 
 
 if __name__ == '__main__':
