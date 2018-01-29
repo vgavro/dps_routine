@@ -88,7 +88,7 @@ class Cabinet:
             driver.set_page_load_timeout(WAIT_TIMEOUT)
             # maybe move out from screen?
             # driver.set_window_position(0, 0)
-            # driver.set_window_size(0, 0)
+            driver.set_window_size(800, 600)
         self.driver = driver
 
     def get(self, url):
