@@ -194,8 +194,9 @@ class Cabinet:
     def login(self, key_path, password=KEY_PASSWORD):
         self.inn, self.fio = self.pre_login_cert(key_path, password)
         self.click('#LoginButton')
+        sleep(0.3)
         try:
-            self.wait_connected()
+            self.wait_invisible('.ui-blockui-document')
         except TimeoutException:
             if self.driver.current_url != 'https://cabinet.sfs.gov.ua/':
                 raise
@@ -385,7 +386,7 @@ class Cabinet:
             self._send_report_upload(filename)
 
         self.wait_connected()
-        self._send_report_verify_sign_send(key_path, password)
+        self._send_report_verify_sign_send(key_path, password, strict_verify=False)
         return list(subreports_map.values())
 
     def _send_report_upload(self, filename):
@@ -414,7 +415,7 @@ class Cabinet:
         # e = self.get_element('.ui-pnotify-container')
         # assert e.text == 'Завантажено успішно', e.text
 
-    def _send_report_verify_sign_send(self, key_path, password):
+    def _send_report_verify_sign_send(self, key_path, password, strict_verify=True):
         self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/checked.png?ln=images')
         sleep(1)
         self.wait_connected()
@@ -423,15 +424,26 @@ class Cabinet:
         #     e = self.get_element('.ui-pnotify-container')
         # except NoSuchElementException:
         #     raise RuntimeError('Звіт має помилки (не критичні?)')
-        try:
-            self.get_element_by_text('Помилок немає', wait=True)
-        except NoSuchElementException:
-            raise RuntimeError('Звіт має помилки (не критичні?)')
 
-        # assert e.text == 'Помилок немає', e.text
+        if strict_verify:
+            try:
+                self.get_element_by_text('Помилок немає', wait=True)
+            except (NoSuchElementException, TimeoutException):
+                raise RuntimeError('Звіт має помилки (не критичні?)')
+
+            # assert e.text == 'Помилок немає', e.text
 
         self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/sign.png?ln=images')
         self.wait_connected()
+
+        try:
+            e = self.get_element_by_text('Продовжити')
+        except NoSuchElementException:
+            pass
+        else:
+            if not strict_verify:
+                e.click()
+                self.wait_connected()
 
         sleep(2)
         # TODO: remove this check, and add checking for new loader
