@@ -88,7 +88,7 @@ class Cabinet:
             driver.set_page_load_timeout(WAIT_TIMEOUT)
             # maybe move out from screen?
             # driver.set_window_position(0, 0)
-            driver.set_window_size(800, 600)
+            # driver.set_window_size(800, 600)
         self.driver = driver
 
     def get(self, url):
@@ -416,16 +416,15 @@ class Cabinet:
         # assert e.text == 'Завантажено успішно', e.text
 
     def _send_report_verify_sign_send(self, key_path, password, strict_verify=True):
-        self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/checked.png?ln=images')
-        sleep(1)
-        self.wait_connected()
-        sleep(1)  # well, you may remove this shit if you have enough time for cabinet debug...
-        # try:
-        #     e = self.get_element('.ui-pnotify-container')
-        # except NoSuchElementException:
-        #     raise RuntimeError('Звіт має помилки (не критичні?)')
-
         if strict_verify:
+            self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/checked.png?ln=images')
+            sleep(1)
+            self.wait_connected()
+            sleep(1)  # well, you may remove this shit if you have enough time for cabinet debug...
+            # try:
+            #     e = self.get_element('.ui-pnotify-container')
+            # except NoSuchElementException:
+            #     raise RuntimeError('Звіт має помилки (не критичні?)')
             try:
                 self.get_element_by_text('Помилок немає', wait=True)
             except (NoSuchElementException, TimeoutException):
