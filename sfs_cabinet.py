@@ -7,6 +7,7 @@ import os
 import sys
 import glob
 import logging
+from collections import OrderedDict
 from xml.etree import ElementTree as ET
 
 from selenium import webdriver
@@ -52,6 +53,9 @@ DEBUG = ('--debug' in sys.argv)
 
 KEY_PASSWORD = open(get_relative_path('key_password')).read().strip()
 KEYS_FILENAME = get_relative_path('keys.xls')
+
+INFO_FILENAME = get_relative_path('info.xls')
+
 PAYER_INFO_FILENAME = get_relative_path('payer_info.xls')
 BUDGET_STATUS_FILENAME = get_relative_path('budget_status.xls')
 RECEIPTS_STATUS_FILENAME = get_relative_path('receipts_status.xls')
@@ -69,7 +73,7 @@ class Cabinet:
         self.reports_dir = REPORTS_DIR
         self.outbox_dir = OUTBOX_DIR
         self.sent_dir = SENT_DIR
-        self.budget_status_report_default_path = os.path.join(self.reports_dir, 'pa.xls')
+        self.budget_status_report_default_path = os.path.join(self.reports_dir, 'pa.xlsx')
         self.receipt_xml_default_path = os.path.join(self.reports_dir, 'data.xml')
         self.card_payer_default_path = os.path.join(self.reports_dir, 'card_pp.html')
 
@@ -194,7 +198,7 @@ class Cabinet:
     def login(self, key_path, password=KEY_PASSWORD):
         self.inn, self.fio = self.pre_login_cert(key_path, password)
         self.click('#LoginButton')
-        sleep(0.3)
+        sleep(0.2)
         try:
             self.wait_invisible('.ui-blockui-document')
         except TimeoutException:
@@ -203,79 +207,106 @@ class Cabinet:
             # in other case we wasn't waiting because of redirect
 
         log.info('logged in inn=%s fio=%s', self.inn, self.fio)
-        sleep(2)  # sleeping after login to wait redirect to new page before new get
+        # sleep(2)  # sleeping after login to wait redirect to new page before new get
         # self.driver.execute_script("window.stop()")  # now working
 
-    def get_budget_status_report(self, payment_id):
-        maybe_remove(self.budget_status_report_default_path)
-        # self.get('https://cabinet.sfs.gov.ua/cabinet/faces/index.jspx')
-        # self.wait_connected()
-        # getting first url to reset state of second one
-        self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/ta.jspx')
-        self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/ta_ext.jspx')
-        # self.wait_connected()
+    def get_payer_info(self):
+        self.get('https://cabinet.sfs.gov.ua/account')
+        self.wait_visible('p-accordiontab')
+        rv = OrderedDict()
 
-        e = self.get_element_by_text_contains(payment_id, wait=True)
-        payment_info = e.find_element_by_xpath('../../../../..').text
+        for group in self.driver.find_elements_by_css_selector('p-accordiontab'):
+            group_name = group.find_element_by_css_selector('.ui-accordion-header').text.strip()
+            if group_name == 'Відомості з Реєстру осіб, які здійснюють операції з товаром':
+                label_postfix = ' =Товари'
+            elif group_name == 'Дані про реєстрацію платником ЄСВ':
+                label_postfix = ' =ЄСВ'
+            else:
+                label_postfix = None
 
-        assert payment_info.startswith('ОДФС'), 'Unknown payment info: {}'.format(payment_info)
+            for row in group.find_elements_by_css_selector('div.row.ng-star-inserted'):
+                label, value = [e.text.strip() for e in row.find_elements_by_css_selector('label')]
+                if label_postfix:
+                    label += label_postfix
+                assert label not in rv, 'Duplicate field in "{}": "{}"'.format(group_name, label)
+                rv.update({label: value})
 
-        patterns = [
-            '^ОДФС (.*)$',
-            '^Код ЄДРПОУ отримувача (\d+)$',
-            '^МФО (\d+)$',
-            '^Бюджетний рахунок (\d+)$',
-        ]
-        payment_info_parsed = []
-        for pattern in patterns:
-            match = re.search(pattern, payment_info, re.MULTILINE)
-            assert match, 'Pattern not matched {}: {}'.format(pattern, payment_info)
-            payment_info_parsed.append(match.group(1))
+        return rv
 
-        e.click()
-        # self.wait_connected()
-
-        self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/'
-                                        'microsoft-excel.png?ln=images')
-
-        def check_path():
-            return os.path.exists(self.budget_status_report_default_path)
-        self.wait_callback(check_path)
-
-        filename = str(self.inn) + '_' + payment_id.replace(' ', '') + '.xls'
-        filename = os.path.join(self.reports_dir, filename)
-        maybe_remove(filename)
-        os.rename(self.budget_status_report_default_path, filename)
-        return payment_info_parsed, filename
-
-        # self.click_img_and_wait_invisible('/cabinet/faces/javax.faces.resource/back.png?ln=images')
-        # self.wait_connected()
-
-    def get_budget_status(self):
+    def get_budget_status(self, odfs=None):
         def parse_saldo(filename):
             wb = xlrd.open_workbook(filename)
             ws = wb.sheet_by_index(0)
             # status_date_text = ws.row(3)[1].value
-            assert ws.row(5)[6].value == 'Сальдо розрахунків', 'Unexpected report format'
+            assert ws.row(4)[6].value == 'Сальдо розрахунків', 'Unexpected report format'
             try:
-                saldo = ws.row(6)[6].value or 0
+                saldo = ws.row(5)[6].value or 0
             except IndexError:
                 saldo = 0
             # wb.close()
             return saldo
 
         try:
-            info1, filename = self.get_budget_status_report('18050400')
-        except NoSuchElementException:
-            info1, filename = self.get_budget_status_report('18050401')
+            info1, filename = self.get_budget_status_report('18050400', odfs)
+        except ValueError:
+            info1, filename = self.get_budget_status_report('18050401', odfs)
         saldo1 = parse_saldo(filename)
-        info1.append(saldo1)  # EN
+        info1['saldo'] = saldo1  # EN
 
-        info2, filename = self.get_budget_status_report('71040000')
+        info2, filename = self.get_budget_status_report('71040000', odfs)
         saldo2 = parse_saldo(filename)
-        info2.append(saldo2)  # ESV
+        info2['saldo'] = saldo2  # ESV
 
         return info1, info2
+
+    def get_budget_status_report(self, payment_id, odfs=None):
+        self.get('https://cabinet.sfs.gov.ua/tax-account')
+        # self.wait_invisible('.ui-blockui-document')
+        self.wait_visible('div.row.data-item')
+
+        for group in self.driver.find_elements_by_css_selector('div.row.data-item'):
+            data = OrderedDict()
+            for row in group.find_elements_by_css_selector('div.row'):
+                if row.text.strip().startswith('Сплатити'):
+                    continue
+                label = row.find_element_by_css_selector('label').text.strip()
+                assert label
+                try:
+                    value = row.find_element_by_css_selector('span').text.strip()
+                except NoSuchElementException:
+                    value = row.find_element_by_css_selector('.sum').text.strip()
+                assert label not in data, 'Duplicate: {}'.format(label)
+                data.update({label: value})
+            if str(payment_id) in data['Платіж'] and (odfs and data['ОДФС'] == odfs):
+                break
+        else:
+            raise ValueError('Not found: payment_id={} odfs='.format(payment_id, odfs))
+
+        group.click()
+
+        self.wait_visible('i.fa-file-excel-o')
+        self.wait_invisible('i.fa-spin')
+        maybe_remove(self.budget_status_report_default_path)
+        self.get_element('i.fa-file-excel-o').click()
+        def check_path():
+            return os.path.exists(self.budget_status_report_default_path)
+        self.wait_callback(check_path)
+
+        filename = str(self.inn) + '_' + payment_id.replace(' ', '') + '.xlsx'
+        filename = os.path.join(self.reports_dir, filename)
+        maybe_remove(filename)
+        os.rename(self.budget_status_report_default_path, filename)
+        return data, filename
+
+    def get_info(self):
+        rv = self.get_payer_info()
+        odfs = rv['Найменування ДПІ за основним місцем обліку']
+        en_budget_status, esv_budget_status = self.get_budget_status(odfs)
+        for k, v in en_budget_status.items():
+            rv[k + ' =ЄП'] = v
+        for k, v in esv_budget_status.items():
+            rv[k + ' =ЄСВ'] = v
+        return rv
 
     def get_last_receipt(self):
         def parse_receipt(filename):
@@ -314,25 +345,6 @@ class Cabinet:
         os.rename(self.receipt_xml_default_path, filename)
         return parse_receipt(filename)
 
-    def get_payer_info(self):
-        if os.path.exists(self.card_payer_default_path):
-            os.remove(self.card_payer_default_path)
-
-        self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/rg_ext.jspx')
-        self.get_element_by_text('ПЕРЕГЛЯД ДАНИХ', wait=True).click()
-        self.get_element_by_text('ДРУКУВАТИ', wait=True).click()
-
-        self.wait_callback(lambda: os.path.exists(self.card_payer_default_path))
-        filename = str(self.inn) + '_card_payer.html'
-        filename = os.path.join(self.reports_dir, filename)
-        maybe_remove(filename)
-        os.rename(self.card_payer_default_path, filename)
-        content = open(filename, 'rb').read().decode('utf8', errors='ignore')
-        data = dict(re.findall('<tr><td[^>]*>([^>]+)</td><td[^>]+>([^>]+)</td></tr>', content))
-        for k in data:
-            if data[k] == '&nbsp':
-                data[k] = ''
-        return data
 
     def send_f3000511_report(self, filename, key_path, password=KEY_PASSWORD):
         content = open(filename, 'rb').read()
@@ -474,51 +486,54 @@ class Cabinet:
         period_month = int(match.group(1))
         assert period_month in (3, 6, 9, 12), 'Unknown PERIOD_MONTH: {}'.format(period_month)
 
-        # self.get('https://cabinet.sfs.gov.ua/cabinet/faces/index.jspx')
+        self.get('https://cabinet.sfs.gov.ua/reporting')
+        import pdb; pdb.set_trace()
+
+        # # self.get('https://cabinet.sfs.gov.ua/cabinet/faces/index.jspx')
+        # # self.wait_connected()
+        # self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/dp00.jspx')
         # self.wait_connected()
-        self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/dp00.jspx')
-        self.wait_connected()
-        self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/ic_note_add.png'
-                                        '?ln=images')
-        self.wait_connected()
+        # self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/ic_note_add.png'
+        #                                 '?ln=images')
+        # self.wait_connected()
 
-        label = self.get_element_by_text('Рік')
-        assert label.tag_name == 'label'
-        input_ = label.find_element_by_xpath('../../td/table/tbody/tr/td/input')
-        input_.clear()
-        input_.send_keys(str(period_year))
+        # label = self.get_element_by_text('Рік')
+        # assert label.tag_name == 'label'
+        # input_ = label.find_element_by_xpath('../../td/table/tbody/tr/td/input')
+        # input_.clear()
+        # input_.send_keys(str(period_year))
 
-        label = self.get_element_by_text('Період')
-        assert label.tag_name == 'label'
-        select = Select(label.find_element_by_xpath('../../td/select'))
-        select.select_by_value(str(period_month - 1))  # months 0...11
+        # label = self.get_element_by_text('Період')
+        # assert label.tag_name == 'label'
+        # select = Select(label.find_element_by_xpath('../../td/select'))
+        # select.select_by_value(str(period_month - 1))  # months 0...11
 
-        label = self.get_element_by_text('Тип форми')
-        assert label.tag_name == 'label'
-        select = Select(label.find_element_by_xpath('../../td/select'))
-        select.select_by_value('1')  # this means F01, improve it in YOUR free time
-        self.wait_connected()
+        # label = self.get_element_by_text('Тип форми')
+        # assert label.tag_name == 'label'
+        # select = Select(label.find_element_by_xpath('../../td/select'))
+        # select.select_by_value('1')  # this means F01, improve it in YOUR free time
+        # self.wait_connected()
 
-        # this should invoke list loading, not working without it
-        # TODO: click not on report, but on some safe place
-        REPORT_NAME = 'Податкова декларацiя платника єдиного податку - фiзичної особи _ пiдприємця'
-        self.get_element_by_text(REPORT_NAME).click()
-        sleep(2)
-        self.wait_connected()
+        # # this should invoke list loading, not working without it
+        # # TODO: click not on report, but on some safe place
+        # REPORT_NAME = 'Податкова декларацiя платника єдиного податку - фiзичної особи _ пiдприємця'
+        # self.get_element_by_text(REPORT_NAME).click()
+        # sleep(2)
+        # self.wait_connected()
 
-        self.get_element_by_text(REPORT_NAME).click()
-        self.wait_connected()
+        # self.get_element_by_text(REPORT_NAME).click()
+        # self.wait_connected()
 
-        #  Comment lines block below to leace "звітний документ" by default
-        #  document_state = Select(self.get_element('select[title="звітний документ"]'))
-        #  document_state.select_by_value('1')  #  новий звітній документ
-        #  sleep(1)
+        # #  Comment lines block below to leace "звітний документ" by default
+        # #  document_state = Select(self.get_element('select[title="звітний документ"]'))
+        # #  document_state.select_by_value('1')  #  новий звітній документ
+        # #  sleep(1)
 
-        self.get_element_by_text('Створити ').click()
-        self.wait_connected()
+        # self.get_element_by_text('Створити ').click()
+        # self.wait_connected()
 
-        self._send_report_upload(filename)
-        self._send_report_verify_sign_send(key_path, password)
+        # self._send_report_upload(filename)
+        # self._send_report_verify_sign_send(key_path, password)
 
 
 # FitSheetWrapper from https://stackoverflow.com/a/9137934/450103
@@ -627,73 +642,69 @@ def scan_keys(keys_dir=KEYS_DIR):
             keys_map.add_key(inn, fio, filename)
 
 
-def get_budget_status(filename=BUDGET_STATUS_FILENAME):
-    log.info('Get budget status %s', filename)
-
-    keys_map = KeysMap()
-    processed = []
-
-    if os.path.exists(filename):
-        wb = xlrd.open_workbook(filename)
-        ws = wb.sheet_by_index(0)
-        for i in range(1, ws.nrows):
-            inn = ws.row(i)[0].value
-            if inn:
-                processed.append(int(inn))
-
-    to_process = set(keys_map) - set(processed)
-    log.info('Processing %s (processed already %s)', len(to_process), len(set(processed)))
-
-    for inn in to_process:
-        cabinet = Cabinet()
-        try:
-            cabinet.login(keys_map[inn])
-            assert cabinet.inn == inn, 'Key inn in store and after login not matched!'
-            en_info, esv_info = cabinet.get_budget_status()
-        except Exception as e:
-            log.exception('Error occured on budget processing %s %s', inn, repr(e))
-            if DEBUG:
-                import pdb; pdb.set_trace()  # noqa
-            continue
-        finally:
-            cabinet.quit()
-        log.info('Adding budget status inn=%s fio=%s en_info=%s esv_info=%s',
-                 cabinet.inn, cabinet.fio, en_info, esv_info)
-        append_xls(filename,
-                   ['inn', 'fio', 'parsed',
-                    'en_odfs', 'en_edrpou', 'en_mfo', 'en_account', 'en_saldo',
-                    'esv_odfs', 'esv_edrpou', 'esv_mfo', 'esv_account', 'esv_saldo',
-                   ],
-                   [cabinet.inn, cabinet.fio, datetime.now(),
-                    en_info[0], en_info[1], en_info[2], en_info[3], en_info[4],
-                    esv_info[0], esv_info[1], esv_info[2], esv_info[3], esv_info[4],
-                   ])
-
-
-def get_payer_info(filename=PAYER_INFO_FILENAME):
-    log.info('Get payer info %s', filename)
+def get_info(filename=INFO_FILENAME):
+    log.info('Get info %s', filename)
 
     headers = [
-        'Податковий номер',
         'Прізвище, ім’я та по батькові',
-        'Код ДПІ за основним місцем обліку',
-        'Найменування ДПІ за основним місцем обліку',
-        'Дата взяття на облік платника податків',
-        'Номер взяття на облік платника податків',
+        'Податковий номер',
         'Особливий режим',
-        'Дата зняття з обліку',
-        'Адреса',
         'Телефони',
-        'Дата переходу на спрощену систему оподаткування',
+        'Дата зняття з обліку',
+        'Номер взяття на облік платника податків',
+        'Найменування ДПІ за основним місцем обліку',
+        'Код ДПІ за основним місцем обліку',
+        'Адреса',
+        'Дата взяття на облік платника податків',
+        'Дата реєстрації платником податку',
+        'Дата анулювання реєстрації',
+        'Термін дії реєстрації',
+        'Підстава анулювання',
+        'Причина анулювання',
+        'Індивідуальний податковий номер',
         'Група',
-        'Ставка',
         'Дата анулювання',
-        'Дата взяття на облік',
-        'Реєстраційний номер платника єдиного внеску',
-        'Клас професійного ризику виробництва',
-        'Код КВЕД по якому призначено клас професійного ризику',
-        'Дата зняття з обліку ',
-        'Код ДПІ за неосновним місцем обліку',
+        'Ставка',
+        'Дата переходу на спрощену систему оподаткування',
+        'Дата взяття на облік =ЄСВ',
+        'Клас професійного ризику виробництва =ЄСВ',
+        'Код КВЕД по якому призначено клас професійного ризику =ЄСВ',
+        'Дата зняття з обліку =ЄСВ',
+        'Реєстраційний номер платника єдиного внеску =ЄСВ',
+        'Обліковий номер особи =Товари',
+        'Дата взяття на облік =Товари',
+        'Дата зняття з обліку =Товари',
+        'Дата внесення змін =Товари',
+        'ОДФС =ЄП',
+        'Назва податку =ЄП',
+        'Платіж =ЄП',
+        'Код ЄДРПОУ отричувача =ЄП',
+        'МФО =ЄП',
+        'Назва отричувача =ЄП',
+        'Бюджетний рахунок =ЄП',
+        'Нараховано/зменшено =ЄП',
+        'Сплачено до бюджету =ЄП',
+        'Повернуто з бюджету =ЄП',
+        'Пеня =ЄП',
+        'Недоїмка =ЄП',
+        'Переплата =ЄП',
+        'Залишок несплаченої пені =ЄП',
+        'saldo =ЄП',
+        'ОДФС =ЄСВ',
+        'Назва податку =ЄСВ',
+        'Платіж =ЄСВ',
+        'Код ЄДРПОУ отричувача =ЄСВ',
+        'МФО =ЄСВ',
+        'Назва отричувача =ЄСВ',
+        'Бюджетний рахунок =ЄСВ',
+        'Нараховано/зменшено =ЄСВ',
+        'Сплачено до бюджету =ЄСВ',
+        'Повернуто з бюджету =ЄСВ',
+        'Пеня =ЄСВ',
+        'Недоїмка =ЄСВ',
+        'Переплата =ЄСВ',
+        'Залишок несплаченої пені =ЄСВ',
+        'saldo =ЄСВ',
     ]
 
     keys_map = KeysMap()
@@ -715,7 +726,7 @@ def get_payer_info(filename=PAYER_INFO_FILENAME):
         try:
             cabinet.login(keys_map[inn])
             assert cabinet.inn == inn, 'Key inn in store and after login not matched!'
-            info = cabinet.get_payer_info()
+            info = cabinet.get_info()
         except Exception as e:
             log.exception('Error occured on payer info processing %s %s', inn, repr(e))
             if DEBUG:
@@ -846,7 +857,7 @@ def send_outbox(outbox_dir=OUTBOX_DIR, sent_dir=SENT_DIR):
 
 
 if __name__ == '__main__':
-    funcs = ['scan_keys', 'get_budget_status', 'get_receipts_status', 'get_payer_info',
+    funcs = ['scan_keys', 'get_info', 'get_receipts_status',
              'send_outbox']
     try:
         func = choice.Menu(funcs).ask()
