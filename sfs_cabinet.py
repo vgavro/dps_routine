@@ -55,10 +55,8 @@ KEY_PASSWORD = open(get_relative_path('key_password')).read().strip()
 KEYS_FILENAME = get_relative_path('keys.xls')
 
 INFO_FILENAME = get_relative_path('info.xls')
+REPORT_STATUS_FILENAME = get_relative_path('report_status.xls')
 
-PAYER_INFO_FILENAME = get_relative_path('payer_info.xls')
-BUDGET_STATUS_FILENAME = get_relative_path('budget_status.xls')
-RECEIPTS_STATUS_FILENAME = get_relative_path('receipts_status.xls')
 KEYS_DIR = get_relative_path('./keys')
 
 REPORTS_DIR = get_relative_path('./reports')
@@ -66,34 +64,20 @@ OUTBOX_DIR = get_relative_path('./outbox')
 SENT_DIR = get_relative_path('./sent')
 
 
-class Cabinet:
-    inn = fio = None
-
-    def __init__(self, driver=None):
-        self.reports_dir = REPORTS_DIR
-        self.outbox_dir = OUTBOX_DIR
-        self.sent_dir = SENT_DIR
-        self.budget_status_report_default_path = os.path.join(self.reports_dir, 'pa.xlsx')
-        self.receipt_xml_default_path = os.path.join(self.reports_dir, 'data.xml')
-        self.card_payer_default_path = os.path.join(self.reports_dir, 'card_pp.html')
-
-        for dir_ in [self.reports_dir, self.outbox_dir, self.sent_dir]:
-            if not os.path.exists(dir_):
-                os.mkdir(dir_)
-
-        if not driver:
-            chrome_options = webdriver.ChromeOptions()
-            chrome_options.add_argument('--lang=en-US')
-            chrome_options.add_experimental_option('prefs', {
-                'download.default_directory': self.reports_dir,
-                'safebrowsing.enabled': True,
-            })
-            driver = webdriver.Chrome(chrome_options=chrome_options)
-            driver.set_page_load_timeout(WAIT_TIMEOUT)
-            # maybe move out from screen?
-            # driver.set_window_position(0, 0)
-            # driver.set_window_size(800, 600)
-        self.driver = driver
+class SeleniumHelperMixin:
+    def create_driver(self):
+        chrome_options = webdriver.ChromeOptions()
+        chrome_options.add_argument('--lang=en-US')
+        chrome_options.add_experimental_option('prefs', {
+            'download.default_directory': self.reports_dir,
+            'safebrowsing.enabled': True,
+        })
+        driver = webdriver.Chrome(chrome_options=chrome_options)
+        driver.set_page_load_timeout(WAIT_TIMEOUT)
+        # maybe move out from screen?
+        # driver.set_window_position(0, 0)
+        # driver.set_window_size(800, 600)
+        return driver
 
     def get(self, url):
         log.debug('get %s', url)
@@ -102,7 +86,11 @@ class Cabinet:
     def quit(self):
         self.driver.quit()
 
-    def get_element(self, selector):
+    def get_element(self, selector, wait=False):
+        if wait:
+            WebDriverWait(self.driver, WAIT_TIMEOUT).until(
+                EC.visibility_of_element_located((By.CSS_SELECTOR, selector)),
+            )
         return self.driver.find_element_by_css_selector(selector)
 
     def get_element_by_text(self, text, wait=False):
@@ -170,6 +158,22 @@ class Cabinet:
         selector = 'img[src="{}"]'.format(img_url)
         self.click(selector)
         self.wait_invisible(selector)
+
+
+class Cabinet(SeleniumHelperMixin):
+    inn = fio = None
+
+    def __init__(self, driver=None):
+        self.reports_dir = REPORTS_DIR
+        self.outbox_dir = OUTBOX_DIR
+        self.sent_dir = SENT_DIR
+        self.budget_status_report_default_path = os.path.join(self.reports_dir, 'pa.xlsx')
+
+        for dir_ in [self.reports_dir, self.outbox_dir, self.sent_dir]:
+            if not os.path.exists(dir_):
+                os.mkdir(dir_)
+
+        self.driver = driver or self.create_driver()
 
     def enter_cert(self, cert_path, password=KEY_PASSWORD):
         self.send_keys('#PKeyFileInput', cert_path)
@@ -312,164 +316,21 @@ class Cabinet:
             rv[k + ' =ЄСВ'] = v
         return rv
 
-    def get_last_receipt(self):
-        raise NotImplementedError('Last receipt not implemented!! (need refactoring for new cabinet)')
-        def parse_receipt(filename):
-            root = ET.parse(filename).getroot()
+    def get_last_report_status(self):
+        self.get('https://cabinet.sfs.gov.ua/vreporting')
+        self.get_element('.sticky-top .col-lg-12 .ui-dropdown-trigger', wait=True).click()
+        menu = self.driver.find_element_by_css_selector('ul.ui-dropdown-items')
+        menu.find_element_by_xpath("./li/span[text() = '{}']".format('Всі')).click()
+        self.wait_invisible('ul.ui-dropdown-items')
+        self.wait_invisible('i.fa-spin.fa-circle-o-notch')
+        headers = [td.text for td in self.driver.find_elements_by_css_selector('thead tr th')]
+        assert headers[-1] == ''
+        headers[-1] = 'Comment'
 
-            year = int(root.find('DECLARHEAD/PERIOD_YEAR').text)
-            month = int(root.find('DECLARHEAD/PERIOD_MONTH').text)
-            sent_date = root.find('DECLARBODY/HDATE').text
-            sent_time = root.find('DECLARBODY/HTIME').text
-            report_type = root.find('DECLARBODY/HDOCKOD').text
-            result_text = root.find('DECLARBODY/HRESULT').text
-            doc_state = root.find('DECLARBODY/HDOCSTAN').text
-            if result_text in ('Пакет прийнято.', 'Прийнято пакет.'):
-                status = 2
-            else:
-                status = 1
-            return report_type, status, year, month, sent_date, sent_time, result_text, doc_state
-
-        maybe_remove(self.receipt_xml_default_path)
-
-        self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/dm03_ext.jspx')
-        # self.wait_connected()
-        # sleep(2)
-        try:
-            self.get_element_by_text_contains('[J1499201]').click()
-        except NoSuchElementException:
-            # import pdb; pdb.set_trace()
-            return None
-        # self.wait_connected()
-        self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/'
-                                        'xml.png?ln=images')
-        self.wait_callback(lambda: os.path.exists(self.receipt_xml_default_path))
-        filename = str(self.inn) + '_J1499201.xls'
-        filename = os.path.join(self.reports_dir, filename)
-        maybe_remove(filename)
-        os.rename(self.receipt_xml_default_path, filename)
-        return parse_receipt(filename)
-
-
-    def send_f3000511_report(self, filename, key_path, password=KEY_PASSWORD):
-        raise NotImplementedError('F30 Not implemeneted!!! (need refactoring for new cabinet)')
-        content = open(filename, 'rb').read()
-        subreports = re.findall(b'<FILENAME>([\w\d\.]+)</FILENAME>', content)
-        subreports = [f.decode() for f in subreports]
-        if not all(os.path.exists(os.path.join(self.outbox_dir, f)) for f in subreports):
-            raise AssertionError('Not all files exists in outbox dir: {}'.format(subreports))
-        assert len(subreports), 'No subreports found'
-        assert len(subreports) <= 2, 'Found subreports more than possible: {}'.format(subreports)
-
-        def create_filename(filename):
-            return os.path.abspath(os.path.join(self.outbox_dir, filename))
-
-        subreports_map = {}
-        for filename_ in subreports:
-            if 'F30501' in filename_:
-                subreports_map['F3050111'] = create_filename(filename_)
-            elif 'F30502' in filename_:
-                subreports_map['F3050211'] = create_filename(filename_)
-            else:
-                raise AssertionError('Unknown subreport type: {}'.format(filename_))
-
-        self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/dp00.jspx')
-        self.wait_connected()
-        self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/ic_note_add.png'
-                                        '?ln=images')
-        self.wait_connected()
-
-        label = self.get_element_by_text('Тип форми')
-        assert label.tag_name == 'label'
-        select = Select(label.find_element_by_xpath('../../td/select'))
-        select.select_by_value('13')  # this means F30, improve it in YOUR free time
-
-        self.wait_connected()
-        self.get_element_by_text('F3000511', wait=True).click()
-        self.wait_connected()
-
-        for k in subreports_map:
-            (self.get_element_by_text(k)
-             .find_element_by_xpath('../div').click())
-
-        sleep(1)  # just in case...
-        self.get_element_by_text('Створити ').click()
-        self.wait_connected()
-
-        self._send_report_upload(filename)
-
-        for report_name, filename in subreports_map.items():
-            self.get_element_by_text(report_name).click()
-            self.wait_connected()
-            self._send_report_upload(filename)
-
-        self.wait_connected()
-        self._send_report_verify_sign_send(key_path, password, strict_verify=False)
-        return list(subreports_map.values())
-
-        # sleep(1)
-        # self.wait_connected()
-        # try:
-        #     self.get_element_by_text('OK').click()
-        #     self.wait_connected()
-        # except (NoSuchElementException, ElementNotVisibleException):
-        #     pass
-        # sleep(1)
-        # self.wait_connected()
-        # self.get_element_by_text( 'Завантажено успішно', wait=True)
-        # # e = self.get_element('.ui-pnotify-container')
-        # # assert e.text == 'Завантажено успішно', e.text
-
-    def _send_report_verify_sign_send(self, key_path, password, strict_verify=True):
-        if strict_verify:
-            self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/checked.png?ln=images')
-            sleep(1)
-            self.wait_connected()
-            sleep(1)  # well, you may remove this shit if you have enough time for cabinet debug...
-            # try:
-            #     e = self.get_element('.ui-pnotify-container')
-            # except NoSuchElementException:
-            #     raise RuntimeError('Звіт має помилки (не критичні?)')
-            try:
-                self.get_element_by_text('Помилок немає', wait=True)
-            except (NoSuchElementException, TimeoutException):
-                raise RuntimeError('Звіт має помилки (не критичні?)')
-
-            # assert e.text == 'Помилок немає', e.text
-
-        self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/sign.png?ln=images')
-        self.wait_connected()
-
-        try:
-            e = self.get_element_by_text('Продовжити')
-        except NoSuchElementException:
-            pass
-        else:
-            if not strict_verify:
-                e.click()
-                self.wait_connected()
-
-        sleep(2)
-        # TODO: remove this check, and add checking for new loader
-        # (wait_connected seems not working)
-        self.get_element_by_text('Підпис документа  приватним підприємцем')
-        # checked that all ok
-
-        inn, fio = self.enter_cert(key_path, password)
-        assert inn == self.inn
-        assert fio == self.fio
-
-        self.click('#LoginButton')
-        sleep(1)
-        self.wait_connected()
-        sleep(1)  # yeah... i know...
-        e = self.wait_visible('.ui-pnotify-container')
-        assert str(e.text).startswith('Підписано успішно')
-        return e.text
-
-
-
-
+        values = [td.text for td in
+                  self.driver.find_elements_by_css_selector('tbody tr:nth-child(1) td')]
+        rv = dict(zip(headers, values))
+        return rv
 
     def _send_report_create_form(self, code, period=None, year=None):
         code = code.upper()
@@ -568,6 +429,75 @@ class Cabinet:
         self._send_report_create_form('F0103306', period, year)
         self._send_report_upload(filename)
         self._send_report_sign_and_send('F0103306', key_path, password)
+
+    def send_f3000511_report(self, filename, key_path, password=KEY_PASSWORD):
+        raise NotImplementedError('F30 Not implemeneted!!! (need refactoring for new cabinet)')
+        # content = open(filename, 'rb').read()
+        # subreports = re.findall(b'<FILENAME>([\w\d\.]+)</FILENAME>', content)
+        # subreports = [f.decode() for f in subreports]
+        # if not all(os.path.exists(os.path.join(self.outbox_dir, f)) for f in subreports):
+        #     raise AssertionError('Not all files exists in outbox dir: {}'.format(subreports))
+        # assert len(subreports), 'No subreports found'
+        # assert len(subreports) <= 2, 'Found subreports more than possible: {}'.format(subreports)
+
+        # def create_filename(filename):
+        #     return os.path.abspath(os.path.join(self.outbox_dir, filename))
+
+        # subreports_map = {}
+        # for filename_ in subreports:
+        #     if 'F30501' in filename_:
+        #         subreports_map['F3050111'] = create_filename(filename_)
+        #     elif 'F30502' in filename_:
+        #         subreports_map['F3050211'] = create_filename(filename_)
+        #     else:
+        #         raise AssertionError('Unknown subreport type: {}'.format(filename_))
+
+        # self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/dp00.jspx')
+        # self.wait_connected()
+        # self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/ic_note_add.png'
+        #                                 '?ln=images')
+        # self.wait_connected()
+
+        # label = self.get_element_by_text('Тип форми')
+        # assert label.tag_name == 'label'
+        # select = Select(label.find_element_by_xpath('../../td/select'))
+        # select.select_by_value('13')  # this means F30, improve it in YOUR free time
+
+        # self.wait_connected()
+        # self.get_element_by_text('F3000511', wait=True).click()
+        # self.wait_connected()
+
+        # for k in subreports_map:
+        #     (self.get_element_by_text(k)
+        #      .find_element_by_xpath('../div').click())
+
+        # sleep(1)  # just in case...
+        # self.get_element_by_text('Створити ').click()
+        # self.wait_connected()
+
+        # self._send_report_upload(filename)
+
+        # for report_name, filename in subreports_map.items():
+        #     self.get_element_by_text(report_name).click()
+        #     self.wait_connected()
+        #     self._send_report_upload(filename)
+
+        # self.wait_connected()
+        # self._send_report_verify_sign_send(key_path, password, strict_verify=False)
+        # return list(subreports_map.values())
+
+        # # sleep(1)
+        # # self.wait_connected()
+        # # try:
+        # #     self.get_element_by_text('OK').click()
+        # #     self.wait_connected()
+        # # except (NoSuchElementException, ElementNotVisibleException):
+        # #     pass
+        # # sleep(1)
+        # # self.wait_connected()
+        # # self.get_element_by_text( 'Завантажено успішно', wait=True)
+        # # # e = self.get_element('.ui-pnotify-container')
+        # # # assert e.text == 'Завантажено успішно', e.text
 
 
 # FitSheetWrapper from https://stackoverflow.com/a/9137934/450103
@@ -676,9 +606,45 @@ def scan_keys(keys_dir=KEYS_DIR):
             keys_map.add_key(inn, fio, filename)
 
 
-def get_info(filename=INFO_FILENAME):
-    log.info('Get info %s', filename)
+def _get_report(filename, headers, method_name, method_kwargs={}):
+    log.info('Populating report %s', filename)
 
+    keys_map = KeysMap()
+    processed = []
+
+    if os.path.exists(filename):
+        wb = xlrd.open_workbook(filename)
+        ws = wb.sheet_by_index(0)
+        for i in range(1, ws.nrows):
+            inn = ws.row(i)[0].value
+            if inn:
+                processed.append(int(inn))
+
+    to_process = set(keys_map) - set(processed)
+    log.info('Processing %s (processed already %s)', len(to_process), len(set(processed)))
+
+    for inn in to_process:
+        cabinet = Cabinet()
+        try:
+            cabinet.login(keys_map[inn])
+            assert cabinet.inn == inn, 'Key inn in store and after login not matched!'
+            data = getattr(cabinet, method_name)(**method_kwargs)
+        except Exception as e:
+            log.exception('Error occured on %s processing %s %s', method_name, inn, repr(e))
+            if DEBUG:
+                import pdb; pdb.set_trace()  # noqa
+            continue
+        finally:
+            cabinet.quit()
+        log.info('Adding row inn=%s fio=%s data=%s',
+                 cabinet.inn, cabinet.fio, data)
+        data = [data.get(k, '') for k in headers]
+        append_xls(filename,
+                   ['inn', 'fio', 'parsed'] + headers,
+                   [cabinet.inn, cabinet.fio, datetime.now()] + data)
+
+
+def get_info(filename=INFO_FILENAME):
     headers = [
         'Прізвище, ім’я та по батькові',
         'Податковий номер',
@@ -740,94 +706,12 @@ def get_info(filename=INFO_FILENAME):
         'Залишок несплаченої пені =ЄСВ',
         'saldo =ЄСВ',
     ]
-
-    keys_map = KeysMap()
-    processed = []
-
-    if os.path.exists(filename):
-        wb = xlrd.open_workbook(filename)
-        ws = wb.sheet_by_index(0)
-        for i in range(1, ws.nrows):
-            inn = ws.row(i)[0].value
-            if inn:
-                processed.append(int(inn))
-
-    to_process = set(keys_map) - set(processed)
-    log.info('Processing %s (processed already %s)', len(to_process), len(set(processed)))
-
-    for inn in to_process:
-        cabinet = Cabinet()
-        try:
-            cabinet.login(keys_map[inn])
-            assert cabinet.inn == inn, 'Key inn in store and after login not matched!'
-            info = cabinet.get_info()
-        except Exception as e:
-            log.exception('Error occured on payer info processing %s %s', inn, repr(e))
-            if DEBUG:
-                import pdb; pdb.set_trace()  # noqa
-            continue
-        finally:
-            cabinet.quit()
-        log.info('Adding payer info inn=%s fio=%s info=%s',
-                 cabinet.inn, cabinet.fio, info)
-        data = [info.get(k, '') for k in headers]
-        append_xls(filename,
-                   ['inn', 'fio', 'parsed'] + headers,
-                   [cabinet.inn, cabinet.fio, datetime.now()] + data)
+    _get_report(filename, headers, 'get_info')
 
 
-def get_receipts_status(filename=RECEIPTS_STATUS_FILENAME):
-    log.info('Get receipts status %s', filename)
-
-    keys_map = KeysMap()
-    processed = []
-    inn_rows = {}
-
-    if os.path.exists(filename):
-        wb = xlrd.open_workbook(filename)
-        ws = wb.sheet_by_index(0)
-        for i in range(1, ws.nrows):
-            inn = ws.row(i)[0].value
-            if inn and int(ws.row(i)[4].value or 0) == 2:
-                # no check if status == 2
-                processed.append(int(inn))
-            else:
-                inn_rows[inn] = i
-
-    to_process = set(keys_map) - set(processed)
-    log.info('Processing %s (processed already %s)', len(to_process), len(set(processed)))
-
-    for inn in to_process:
-        cabinet = Cabinet()
-        try:
-            cabinet.login(keys_map[inn])
-            assert cabinet.inn == inn, 'Key inn in store and after login not matched!'
-            info = cabinet.get_last_receipt()
-        except Exception as e:
-            log.exception('Error occured on receipt processing %s %s', inn, repr(e))
-            if DEBUG:
-                import pdb; pdb.set_trace()  # noqa
-            continue
-        finally:
-            cabinet.quit()
-        log.info('Adding recepit status inn=%s fio=%s info=%s',
-                 cabinet.inn, cabinet.fio, info)
-
-        if not info:
-            info = ('',) * 8
-        else:
-            assert len(info) == 8
-
-        headers = ['inn', 'fio', 'parsed',  # status may be 0/1/2
-                   'report', 'status', 'year', 'month', 'sent_date', 'sent_time', 'result_text',
-                   'doc_state']
-        row = [cabinet.inn, cabinet.fio, datetime.now(),
-               info[0], info[1], info[2], info[3], info[4], info[5], info[6], info[7]]
-
-        if inn in inn_rows:
-            write_row_by_index_xls(filename, inn_rows[inn], row)
-        else:
-            append_xls(filename, headers, row)
+def get_report_status(filename=REPORT_STATUS_FILENAME):
+    headers = ['ДФС', 'Форма', 'Номер', 'Дата', 'Період', 'Додатки', 'Comment']
+    _get_report(filename, headers, 'get_last_report_status')
 
 
 def send_outbox(outbox_dir=OUTBOX_DIR, sent_dir=SENT_DIR):
@@ -891,8 +775,7 @@ def send_outbox(outbox_dir=OUTBOX_DIR, sent_dir=SENT_DIR):
 
 
 if __name__ == '__main__':
-    funcs = ['scan_keys', 'get_info', 'get_receipts_status',
-             'send_outbox']
+    funcs = ['scan_keys', 'get_info', 'get_report_status', 'send_outbox']
     try:
         func = choice.Menu(funcs).ask()
         globals()[func]()
