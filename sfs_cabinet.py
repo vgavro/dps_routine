@@ -171,9 +171,6 @@ class Cabinet:
         self.click(selector)
         self.wait_invisible(selector)
 
-    def wait_connected(self):
-        self.wait_visible('img[src="/cabinet/afr/alta-v1/connected.gif"]')
-
     def enter_cert(self, cert_path, password=KEY_PASSWORD):
         self.send_keys('#PKeyFileInput', cert_path)
         self.send_keys('#PKeyPassword', password)
@@ -309,6 +306,7 @@ class Cabinet:
         return rv
 
     def get_last_receipt(self):
+        raise NotImplementedError('Last receipt not implemented!! (need refactoring for new cabinet)')
         def parse_receipt(filename):
             root = ET.parse(filename).getroot()
 
@@ -347,6 +345,7 @@ class Cabinet:
 
 
     def send_f3000511_report(self, filename, key_path, password=KEY_PASSWORD):
+        raise NotImplementedError('F30 Not implemeneted!!! (need refactoring for new cabinet)')
         content = open(filename, 'rb').read()
         subreports = re.findall(b'<FILENAME>([\w\d\.]+)</FILENAME>', content)
         subreports = [f.decode() for f in subreports]
@@ -401,31 +400,18 @@ class Cabinet:
         self._send_report_verify_sign_send(key_path, password, strict_verify=False)
         return list(subreports_map.values())
 
-    def _send_report_upload(self, filename):
-        self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/upload.png'
-                                        '?ln=images')
-        sleep(1)
-        self.wait_connected()
-        sleep(1)
-        try:
-            self.get_element_by_text('Оновити ...').click()
-            sleep(1)
-        except NoSuchElementException:
-            pass
-        self.wait_connected()
-        self.send_keys('input[type="file"]', filename)
-        sleep(1)
-        self.wait_connected()
-        try:
-            self.get_element_by_text('OK').click()
-            self.wait_connected()
-        except (NoSuchElementException, ElementNotVisibleException):
-            pass
-        sleep(1)
-        self.wait_connected()
-        self.get_element_by_text( 'Завантажено успішно', wait=True)
-        # e = self.get_element('.ui-pnotify-container')
-        # assert e.text == 'Завантажено успішно', e.text
+        # sleep(1)
+        # self.wait_connected()
+        # try:
+        #     self.get_element_by_text('OK').click()
+        #     self.wait_connected()
+        # except (NoSuchElementException, ElementNotVisibleException):
+        #     pass
+        # sleep(1)
+        # self.wait_connected()
+        # self.get_element_by_text( 'Завантажено успішно', wait=True)
+        # # e = self.get_element('.ui-pnotify-container')
+        # # assert e.text == 'Завантажено успішно', e.text
 
     def _send_report_verify_sign_send(self, key_path, password, strict_verify=True):
         if strict_verify:
@@ -474,66 +460,107 @@ class Cabinet:
         assert str(e.text).startswith('Підписано успішно')
         return e.text
 
+
+
+
+
+    def _send_report_create_form(self, code, period=None, year=None):
+        code = code.upper()
+
+        self.get('https://cabinet.sfs.gov.ua/reporting/doc/new')
+        self.wait_visible('div.ui-panel-content.ui-widget-content')
+        panel = self.get_element('div.ui-panel-content.ui-widget-content')
+
+        if year:
+            year_input = panel.find_elements_by_css_selector('input')[0]
+            year_input.clear()
+            year_input.send_keys(str(year))
+            sleep(1)  # TODO: waiting table to reload
+
+        if period:
+            period = period.replace('і', 'i')  # ukrainian to english.. HAHA....
+            panel.find_elements_by_css_selector('.ui-dropdown-label')[0].click()
+            menu = panel.find_element_by_css_selector('ul.ui-dropdown-items')
+            menu.find_element_by_xpath("./li/span[text() = '{}']".format(period)).click()
+            self.wait_invisible('ul.ui-dropdown-items')
+            sleep(1)  # TODO: waiting table to reload
+
+        panel.find_elements_by_css_selector('.ui-dropdown-label')[1].click()
+        menu = panel.find_element_by_css_selector('ul.ui-dropdown-items')
+        for e in menu.find_elements_by_xpath("./li/span"):
+            if e.text.strip().startswith(code[:3]):
+                e.click()
+                break
+        else:
+            raise ValueError('Not found type for code {}'.format(code))
+
+        sleep(1)  # TODO: waiting table to reload
+        self.get_element_by_text(code, wait=True).click()
+        self.wait_visible('button i.fa.fa-plus')
+        sleep(1)  # we need to fill default fields, or get error otherwise
+        self.get_element('button i.fa.fa-plus').click()
+        try:
+            self.wait_visible('button i.fa.fa-upload')
+        except TimeoutException:
+            self.get_element('button i.fa.fa-plus').click()
+            self.wait_visible('button i.fa.fa-upload')
+
+    def _send_report_upload(self, filename):
+        self.wait_visible('button i.fa.fa-upload')
+        self.send_keys('input[type="file"]', filename)
+        self.wait_invisible('p-progressbar')
+        self.get_element('button i.fa.fa-check').click()
+        self.wait_invisible('p-progressbar')
+        self.get_element('button i.fa.fa-save').click()
+        self.wait_invisible('p-progressbar')
+        self.wait_visible('button i.fa.fa-key')
+
+    def _send_report_sign_and_send(self, code, key_path, password):
+        def _get_last(wait_icon, click=False):
+            # just checking that last is the one
+            assert (self.get_element('thead tr:nth-child(1)').text ==
+                    'Квитанція\nСтатус\nФорма\nДата Назва')
+
+            assert self.get_element('tbody tr:nth-child(1) td:nth-child(4)').text == code
+            self.wait_visible('tbody tr:nth-child(1) i.fa.fa-{}'.format(wait_icon))
+            if click:
+                self.get_element('tbody tr:nth-child(1)').click()
+
+        _get_last('check', click=True)
+
+        self.get_element('button i.fa.fa-key').click()
+        self.get_element_by_text_contains('Підпис документа', wait=True)
+        inn, fio = self.enter_cert(key_path, password)
+        assert inn == self.inn
+        assert fio == self.fio
+        self.click('#LoginButton')
+
+        _get_last('key', click=True)
+
+        self.get_element('button i.fa.fa-send').click()
+
+        _get_last('paper-plane', click=False)
+
     def send_f0103306_report(self, filename, key_path, password=KEY_PASSWORD):
         content = open(filename, 'rb').read()
 
         match = re.search(b'<PERIOD_YEAR>(\d+)</PERIOD_YEAR>', content, re.MULTILINE)
         assert match, 'Could not find PERIOD_YEAR (skipping) %s' % filename
-        period_year = int(match.group(1))
+        year = int(match.group(1))
 
         match = re.search(b'<PERIOD_MONTH>(\d+)</PERIOD_MONTH>', content, re.MULTILINE)
         assert match, 'Could not find PERIOD_MONTH (skipping) %s' % filename
         period_month = int(match.group(1))
         assert period_month in (3, 6, 9, 12), 'Unknown PERIOD_MONTH: {}'.format(period_month)
-
-        self.get('https://cabinet.sfs.gov.ua/reporting')
-        import pdb; pdb.set_trace()
-
-        # # self.get('https://cabinet.sfs.gov.ua/cabinet/faces/index.jspx')
-        # # self.wait_connected()
-        # self.get('https://cabinet.sfs.gov.ua/cabinet/faces/pages/dp00.jspx')
-        # self.wait_connected()
-        # self.wait_visible_img_and_click('/cabinet/faces/javax.faces.resource/ic_note_add.png'
-        #                                 '?ln=images')
-        # self.wait_connected()
-
-        # label = self.get_element_by_text('Рік')
-        # assert label.tag_name == 'label'
-        # input_ = label.find_element_by_xpath('../../td/table/tbody/tr/td/input')
-        # input_.clear()
-        # input_.send_keys(str(period_year))
-
-        # label = self.get_element_by_text('Період')
-        # assert label.tag_name == 'label'
-        # select = Select(label.find_element_by_xpath('../../td/select'))
-        # select.select_by_value(str(period_month - 1))  # months 0...11
-
-        # label = self.get_element_by_text('Тип форми')
-        # assert label.tag_name == 'label'
-        # select = Select(label.find_element_by_xpath('../../td/select'))
-        # select.select_by_value('1')  # this means F01, improve it in YOUR free time
-        # self.wait_connected()
-
-        # # this should invoke list loading, not working without it
-        # # TODO: click not on report, but on some safe place
-        # REPORT_NAME = 'Податкова декларацiя платника єдиного податку - фiзичної особи _ пiдприємця'
-        # self.get_element_by_text(REPORT_NAME).click()
-        # sleep(2)
-        # self.wait_connected()
-
-        # self.get_element_by_text(REPORT_NAME).click()
-        # self.wait_connected()
-
-        # #  Comment lines block below to leace "звітний документ" by default
-        # #  document_state = Select(self.get_element('select[title="звітний документ"]'))
-        # #  document_state.select_by_value('1')  #  новий звітній документ
-        # #  sleep(1)
-
-        # self.get_element_by_text('Створити ').click()
-        # self.wait_connected()
-
-        # self._send_report_upload(filename)
-        # self._send_report_verify_sign_send(key_path, password)
+        period = {
+            3: 'I квартал',
+            6: 'Півріччя',
+            9: '9 місяців',
+            12: 'Рік',
+        }[period_month]
+        self._send_report_create_form('F0103306', period, year)
+        self._send_report_upload(filename)
+        self._send_report_sign_and_send('F0103306', key_path, password)
 
 
 # FitSheetWrapper from https://stackoverflow.com/a/9137934/450103
