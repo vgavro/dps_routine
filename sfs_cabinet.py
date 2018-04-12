@@ -48,7 +48,7 @@ def maybe_remove(path):
         os.remove(path)
 
 
-WAIT_TIMEOUT = 20
+WAIT_TIMEOUT = 10
 DEBUG = ('--debug' in sys.argv)
 
 KEY_PASSWORD = open(get_relative_path('key_password')).read().strip()
@@ -247,19 +247,25 @@ class Cabinet:
             info1, filename = self.get_budget_status_report('18050400', odfs)
         except ValueError:
             info1, filename = self.get_budget_status_report('18050401', odfs)
-        saldo1 = parse_saldo(filename)
-        info1['saldo'] = saldo1  # EN
+        if filename:
+            saldo1 = parse_saldo(filename)
+            info1['saldo'] = saldo1  # EN
 
         info2, filename = self.get_budget_status_report('71040000', odfs)
-        saldo2 = parse_saldo(filename)
-        info2['saldo'] = saldo2  # ESV
+        if filename:
+            saldo2 = parse_saldo(filename)
+            info2['saldo'] = saldo2  # ESV
 
         return info1, info2
 
     def get_budget_status_report(self, payment_id, odfs=None):
         self.get('https://cabinet.sfs.gov.ua/tax-account')
-        # self.wait_invisible('.ui-blockui-document')
-        self.wait_visible('div.row.data-item')
+        self.wait_visible('div.ui-datalist-content')
+        # self.wait_invisible('.ui-blockui-document')  # NOTE: not sure about
+        try:
+            self.wait_visible('div.row.data-item')
+        except TimeoutException:
+            return {}, None
 
         for group in self.driver.find_elements_by_css_selector('div.row.data-item'):
             data = OrderedDict()
@@ -277,7 +283,8 @@ class Cabinet:
             if str(payment_id) in data['Платіж'] and (odfs and data['ОДФС'] == odfs):
                 break
         else:
-            raise ValueError('Not found: payment_id={} odfs='.format(payment_id, odfs))
+            return {}, None
+            # raise ValueError('Not found: payment_id={} odfs='.format(payment_id, odfs))
 
         group.click()
 
