@@ -383,21 +383,18 @@ class Cabinet(SeleniumHelperMixin):
             self.wait_visible('button i.fa.fa-upload')
 
     def _send_report_upload(self, filename):
-        def wait():
-            # one of this, for whatever reason
-            self.wait_invisible('p-progressbar')
-            self.wait_invisible('div[role=progressbar]')
-            self.wait_invisible('.ui-progressbar-value')
-
-
+        # def wait():
+        #     self.wait_invisible('p-progressbar')
+        #     self.wait_invisible('div[role=progressbar]')
+        #     self.wait_invisible('.ui-progressbar-value')
         self.wait_visible('button i.fa.fa-upload')
-        self.send_keys('input[type="file"]', filename)
-        wait()
-        # import pdb; pdb.set_trace()
+        file_input = self.driver.find_elements_by_css_selector('input[type="file"]')[-1]
+        file_input.send_keys(filename)
+        self.wait_invisible('p-progressbar')
         self.get_element('button i.fa.fa-check').click()
-        wait()
+        self.wait_invisible('p-progressbar')
         self.get_element('button i.fa.fa-save').click()
-        wait()
+        self.wait_invisible('p-progressbar')
         self.wait_visible('button i.fa.fa-key')
 
     def _send_report_sign_and_send(self, code, key_path, password):
@@ -418,7 +415,10 @@ class Cabinet(SeleniumHelperMixin):
         inn, fio = self.enter_cert(key_path, password)
         assert inn == self.inn
         assert fio == self.fio
-        self.click('#LoginButton')
+
+        sign = self.driver.find_elements_by_css_selector('button[title=Підписати]')[-1]
+        sign.click()
+        sleep(0.2)
 
         _get_last('key', click=True)
 
