@@ -93,13 +93,16 @@ class SeleniumHelperMixin:
             )
         return self.driver.find_element_by_css_selector(selector)
 
-    def get_element_by_text(self, text, wait=False):
+    def get_elements_by_text(self, text, wait=False):
         xpath = "//*[text() = '{}']".format(text)
         if wait:
             WebDriverWait(self.driver, WAIT_TIMEOUT).until(
                 EC.visibility_of_element_located((By.XPATH, xpath)),
             )
-        return self.driver.find_element_by_xpath(xpath)
+        return self.driver.find_elements_by_xpath(xpath)
+
+    def get_element_by_text(self, *args, **kwargs):
+        return self.get_elements_by_text(*args, **kwargs)[0]
 
     def get_element_by_text_contains(self, text, wait=False):
         xpath = "//*[text()[contains(., '{}')]]".format(text)
@@ -176,10 +179,13 @@ class Cabinet(SeleniumHelperMixin):
         self.driver = driver or self.create_driver()
 
     def enter_cert(self, cert_path, password=KEY_PASSWORD):
-        self.send_keys('#PKeyFileInput', cert_path)
-        self.send_keys('#PKeyPassword', password)
-        sleep(1)  # seems onclick is not always binded
-        self.click('#PKeyReadButton')
+        cert_input = self.driver.find_elements_by_css_selector('#PKeyFileInput')[-1]
+        cert_input.send_keys(cert_path)
+        pwd_input = self.driver.find_elements_by_css_selector('input[type=password]')[-1]
+        pwd_input.send_keys(password)
+        # sleep(1)  # seems onclick is not always binded
+        # self.click('#PKeyReadButton')
+        self.get_elements_by_text('Зчитати')[-1].click()
         info = self.wait_visible('#certInfo').text
         match = re.match('Власник: (.+) \((\d+)\)$', info, re.MULTILINE)
         if not match:
@@ -198,7 +204,9 @@ class Cabinet(SeleniumHelperMixin):
 
     def login(self, key_path, password=KEY_PASSWORD):
         self.inn, self.fio = self.pre_login_cert(key_path, password)
-        self.click('#LoginButton')
+
+        login = self.driver.find_elements_by_css_selector('button[title=Увійти]')[-1]
+        login.click()
         sleep(0.2)
         try:
             self.wait_invisible('.ui-blockui-document')
@@ -294,6 +302,7 @@ class Cabinet(SeleniumHelperMixin):
 
         self.wait_visible('i.fa-file-excel-o')
         self.wait_invisible('i.fa-spin')
+        self.wait_invisible('.ui-table-loading')
         maybe_remove(self.budget_status_report_default_path)
         self.get_element('i.fa-file-excel-o').click()
         def check_path():
@@ -374,13 +383,21 @@ class Cabinet(SeleniumHelperMixin):
             self.wait_visible('button i.fa.fa-upload')
 
     def _send_report_upload(self, filename):
+        def wait():
+            # one of this, for whatever reason
+            self.wait_invisible('p-progressbar')
+            self.wait_invisible('div[role=progressbar]')
+            self.wait_invisible('.ui-progressbar-value')
+
+
         self.wait_visible('button i.fa.fa-upload')
         self.send_keys('input[type="file"]', filename)
-        self.wait_invisible('p-progressbar')
+        wait()
+        # import pdb; pdb.set_trace()
         self.get_element('button i.fa.fa-check').click()
-        self.wait_invisible('p-progressbar')
+        wait()
         self.get_element('button i.fa.fa-save').click()
-        self.wait_invisible('p-progressbar')
+        wait()
         self.wait_visible('button i.fa.fa-key')
 
     def _send_report_sign_and_send(self, code, key_path, password):
