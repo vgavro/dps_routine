@@ -258,7 +258,12 @@ class Cabinet(SeleniumHelperMixin):
         try:
             info1, filename = self.get_budget_status_report('18050400', odfs)
         except ValueError:
+            # TODO: looks like we're not raising ValueError?
             info1, filename = self.get_budget_status_report('18050401', odfs)
+        else:
+            if not filename:
+                info1, filename = self.get_budget_status_report('18050401', odfs)
+
         if filename:
             saldo1 = parse_saldo(filename)
             info1['saldo'] = saldo1  # EN
