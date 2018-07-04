@@ -289,8 +289,12 @@ class Cabinet(SeleniumHelperMixin):
             for row in group.find_elements_by_css_selector('div.row'):
                 if row.text.strip().startswith('Сплатити'):
                     continue
-                label = row.find_element_by_css_selector('label').text.strip()
-                assert label
+                try:
+                    label = row.find_element_by_css_selector('label').text.strip()
+                    assert label
+                except NoSuchElementException:
+                    # Seems like this is payment buttons
+                    continue
                 try:
                     value = row.find_element_by_css_selector('span').text.strip()
                 except NoSuchElementException:
