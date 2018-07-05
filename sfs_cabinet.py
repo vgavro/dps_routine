@@ -282,6 +282,7 @@ class Cabinet(SeleniumHelperMixin):
         try:
             self.wait_visible('div.row.data-item')
         except TimeoutException:
+            log.debug('No budget status for payment_id=%s odfs=%s (timeout)', payment_id, odfs)
             return {}, None
 
         for group in self.driver.find_elements_by_css_selector('div.row.data-item'):
@@ -291,7 +292,8 @@ class Cabinet(SeleniumHelperMixin):
                     continue
                 try:
                     label = row.find_element_by_css_selector('label').text.strip()
-                    assert label
+                    if not label:
+                        continue
                 except NoSuchElementException:
                     # Seems like this is payment buttons
                     continue
@@ -302,8 +304,11 @@ class Cabinet(SeleniumHelperMixin):
                 assert label not in data, 'Duplicate: {}'.format(label)
                 data.update({label: value})
             if str(payment_id) in data['Платіж'] and (odfs and data['ОДФС'] == odfs):
+                log.debug('Matched row=%s', data)
                 break
+            log.debug('Not matched row=%s', data)
         else:
+            log.debug('No budget status for payment_id=%s odfs=%s (nothing matched)', payment_id, odfs)
             return {}, None
             # raise ValueError('Not found: payment_id={} odfs='.format(payment_id, odfs))
 
@@ -664,10 +669,13 @@ def _get_report(filename, headers, method_name, method_kwargs={}):
             cabinet.quit()
         log.info('Adding row inn=%s fio=%s data=%s',
                  cabinet.inn, cabinet.fio, data)
-        data = [data.get(k, '') for k in headers]
+        skipped_headers = [h for h in headers if h not in data]
+        if skipped_headers:
+            log.warn('Skipped headers: %s',  skipped_headers)
+        row = [data.get(k, '') for k in headers]
         append_xls(filename,
                    ['inn', 'fio', 'parsed'] + headers,
-                   [cabinet.inn, cabinet.fio, datetime.now()] + data)
+                   [cabinet.inn, cabinet.fio, datetime.now()] + row)
 
 
 def get_info(filename=INFO_FILENAME):
@@ -704,9 +712,9 @@ def get_info(filename=INFO_FILENAME):
         'ОДФС =ЄП',
         'Назва податку =ЄП',
         'Платіж =ЄП',
-        'Код ЄДРПОУ отричувача =ЄП',
+        'Код ЄДРПОУ отримувача =ЄП',
         'МФО =ЄП',
-        'Назва отричувача =ЄП',
+        'Назва отримувача =ЄП',
         'Бюджетний рахунок =ЄП',
         'Нараховано/зменшено =ЄП',
         'Сплачено до бюджету =ЄП',
@@ -719,9 +727,9 @@ def get_info(filename=INFO_FILENAME):
         'ОДФС =ЄСВ',
         'Назва податку =ЄСВ',
         'Платіж =ЄСВ',
-        'Код ЄДРПОУ отричувача =ЄСВ',
+        'Код ЄДРПОУ отримувача =ЄСВ',
         'МФО =ЄСВ',
-        'Назва отричувача =ЄСВ',
+        'Назва отримувача =ЄСВ',
         'Бюджетний рахунок =ЄСВ',
         'Нараховано/зменшено =ЄСВ',
         'Сплачено до бюджету =ЄСВ',
