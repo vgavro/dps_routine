@@ -63,6 +63,17 @@ REPORTS_DIR = get_relative_path('./reports')
 OUTBOX_DIR = get_relative_path('./outbox')
 SENT_DIR = get_relative_path('./sent')
 
+BUDGET_STATUS_CODES = OrderedDict((
+    ('18050400', 'ЄП'),
+    ('18050401', 'ЄП'),
+    ('71040000', 'ЄСВ'),
+    ('11011000', 'ВЗ'),
+    ('11010500', 'ПДФО'),
+    ('18010200', 'Недвиж'),
+    ('18010700', 'Земля'),
+    ('_', 'UNKNOWN'),
+))
+
 
 class SeleniumHelperMixin:
     def create_driver(self):
@@ -243,48 +254,28 @@ class Cabinet(SeleniumHelperMixin):
         return rv
 
     def get_budget_status(self, odfs=None):
-        def parse_saldo(filename):
-            wb = xlrd.open_workbook(filename)
-            ws = wb.sheet_by_index(0)
-            # status_date_text = ws.row(3)[1].value
-            assert ws.row(4)[6].value == 'Сальдо розрахунків', 'Unexpected report format'
-            try:
-                saldo = ws.row(5)[6].value or 0
-            except IndexError:
-                saldo = 0
-            # wb.close()
-            return saldo
+        rv = {}
+        for i, data in enumerate(tuple(self.get_budget_status_items())):
+            pay = data['Платіж'].split(' ')[1]
+            if pay in ('18050400', '18050401', '71040000') and odfs and odfs != data['ОДФС']:
+                continue
+            data['saldo'] = self.get_budget_status_saldo(data, i)
+            rv[BUDGET_STATUS_CODES.get(pay, tuple(BUDGET_STATUS_CODES.values())[-1])] = data
+        return rv
 
-        try:
-            info1, filename = self.get_budget_status_report('18050400', odfs)
-        except ValueError:
-            # TODO: looks like we're not raising ValueError?
-            info1, filename = self.get_budget_status_report('18050401', odfs)
-        else:
-            if not filename:
-                info1, filename = self.get_budget_status_report('18050401', odfs)
-
-        if filename:
-            saldo1 = parse_saldo(filename)
-            info1['saldo'] = saldo1  # EN
-
-        info2, filename = self.get_budget_status_report('71040000', odfs)
-        if filename:
-            saldo2 = parse_saldo(filename)
-            info2['saldo'] = saldo2  # ESV
-
-        return info1, info2
-
-    def get_budget_status_report(self, payment_id, odfs=None):
+    def _open_budget_status_page(self):
         self.get('https://cabinet.sfs.gov.ua/tax-account')
         self.wait_visible('div.ui-datalist-content')
         # self.wait_invisible('.ui-blockui-document')  # NOTE: not sure about
         try:
             self.wait_visible('div.row.data-item')
+            return True
         except TimeoutException:
-            log.debug('No budget status for payment_id=%s odfs=%s (timeout)', payment_id, odfs)
-            return {}, None
+            return False
 
+    def get_budget_status_items(self):
+        if not self._open_budget_status_page():
+            return
         for group in self.driver.find_elements_by_css_selector('div.row.data-item'):
             data = OrderedDict()
             for row in group.find_elements_by_css_selector('div.row'):
@@ -303,15 +294,25 @@ class Cabinet(SeleniumHelperMixin):
                     value = row.find_element_by_css_selector('.sum').text.strip()
                 assert label not in data, 'Duplicate: {}'.format(label)
                 data.update({label: value})
-            if str(payment_id) in data['Платіж'] and (odfs and data['ОДФС'] == odfs):
-                log.debug('Matched row=%s', data)
-                break
-            log.debug('Not matched row=%s', data)
-        else:
-            log.debug('No budget status for payment_id=%s odfs=%s (nothing matched)', payment_id, odfs)
-            return {}, None
-            # raise ValueError('Not found: payment_id={} odfs='.format(payment_id, odfs))
+            yield data
 
+    def _parse_budget_status_report_saldo(self, filename):
+        wb = xlrd.open_workbook(filename)
+        ws = wb.sheet_by_index(0)
+        # status_date_text = ws.row(3)[1].value
+        assert ws.row(4)[6].value == 'Сальдо розрахунків', 'Unexpected report format'
+        try:
+            saldo = ws.row(5)[6].value or 0
+        except IndexError:
+            saldo = 0
+        # wb.close()
+        return saldo
+
+    def get_budget_status_saldo(self, data, index):
+        assert self._open_budget_status_page()
+        # Actually it's not safe at all, because data may have changed since we got index,
+        # but fuck it
+        group = self.driver.find_elements_by_css_selector('div.row.data-item')[index]
         group.click()
 
         self.wait_visible('i.fa-file-excel-o')
@@ -323,20 +324,19 @@ class Cabinet(SeleniumHelperMixin):
             return os.path.exists(self.budget_status_report_default_path)
         self.wait_callback(check_path)
 
-        filename = str(self.inn) + '_' + payment_id.replace(' ', '') + '.xlsx'
+        filename = str(self.inn) + '_' + data['Платіж'].replace(' ', '') + '.xlsx'
         filename = os.path.join(self.reports_dir, filename)
         maybe_remove(filename)
         os.rename(self.budget_status_report_default_path, filename)
-        return data, filename
+
+        return self._parse_budget_status_report_saldo(filename)
 
     def get_info(self):
         rv = self.get_payer_info()
         odfs = rv['Найменування ДПІ за основним місцем обліку']
-        en_budget_status, esv_budget_status = self.get_budget_status(odfs)
-        for k, v in en_budget_status.items():
-            rv[k + ' =ЄП'] = v
-        for k, v in esv_budget_status.items():
-            rv[k + ' =ЄСВ'] = v
+        for code, data in self.get_budget_status(odfs).items():
+            for k, v in data.items():
+                rv[k + ' =' + code] = v
         return rv
 
     def get_last_report_status(self):
@@ -709,37 +709,26 @@ def get_info(filename=INFO_FILENAME):
         'Дата взяття на облік =Товари',
         'Дата зняття з обліку =Товари',
         'Дата внесення змін =Товари',
-        'ОДФС =ЄП',
-        'Назва податку =ЄП',
-        'Платіж =ЄП',
-        'Код ЄДРПОУ отримувача =ЄП',
-        'МФО =ЄП',
-        'Назва отримувача =ЄП',
-        'Бюджетний рахунок =ЄП',
-        'Нараховано/зменшено =ЄП',
-        'Сплачено до бюджету =ЄП',
-        'Повернуто з бюджету =ЄП',
-        'Пеня =ЄП',
-        'Недоїмка =ЄП',
-        'Переплата =ЄП',
-        'Залишок несплаченої пені =ЄП',
-        'saldo =ЄП',
-        'ОДФС =ЄСВ',
-        'Назва податку =ЄСВ',
-        'Платіж =ЄСВ',
-        'Код ЄДРПОУ отримувача =ЄСВ',
-        'МФО =ЄСВ',
-        'Назва отримувача =ЄСВ',
-        'Бюджетний рахунок =ЄСВ',
-        'Нараховано/зменшено =ЄСВ',
-        'Сплачено до бюджету =ЄСВ',
-        'Повернуто з бюджету =ЄСВ',
-        'Пеня =ЄСВ',
-        'Недоїмка =ЄСВ',
-        'Переплата =ЄСВ',
-        'Залишок несплаченої пені =ЄСВ',
-        'saldo =ЄСВ',
     ]
+    for k in OrderedDict((k, None) for k in BUDGET_STATUS_CODES.values()).keys():
+        headers.extend([
+            'ОДФС =' + k,
+            'Назва податку =' + k,
+            'Платіж =' + k,
+            'Код ЄДРПОУ отримувача =' + k,
+            'МФО =' + k,
+            'Назва отримувача =' + k,
+            'Бюджетний рахунок =' + k,
+            'Нараховано/зменшено =' + k,
+            'Сплачено до бюджету =' + k,
+            'Повернуто з бюджету =' + k,
+            'Пеня =' + k,
+            'Недоїмка =' + k,
+            'Переплата =' + k,
+            'Залишок несплаченої пені =' + k,
+            'saldo =' + k,
+        ])
+
     _get_report(filename, headers, 'get_info')
 
 
