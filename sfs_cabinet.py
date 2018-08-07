@@ -211,6 +211,7 @@ class Cabinet(SeleniumHelperMixin):
 
         # self.wait_presence('.blockUI.blockOverlay')
         self.wait_invisible('.blockUI.blockOverlay')
+        log.info('Logging in with cert %s', cert_path)
         return self.enter_cert(cert_path, password)
 
     def login(self, key_path, password=KEY_PASSWORD):
@@ -227,7 +228,7 @@ class Cabinet(SeleniumHelperMixin):
             # in other case we wasn't waiting because of redirect
 
         log.info('logged in inn=%s fio=%s', self.inn, self.fio)
-        # sleep(2)  # sleeping after login to wait redirect to new page before new get
+        sleep(2)  # sleeping after login to wait redirect to new page before new get
         # self.driver.execute_script("window.stop()")  # now working
 
     def get_payer_info(self):
