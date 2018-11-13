@@ -30,7 +30,8 @@ except ImportError:
     glob2 = None
 
 
-logging.basicConfig(level=logging.DEBUG,
+DEBUG = ('--debug' in sys.argv)
+logging.basicConfig(level=(logging.DEBUG if DEBUG else logging.INFO),
                     format='%(asctime)s %(levelname)s %(message)s')
 
 LOGGER.setLevel(logging.WARNING)
@@ -49,7 +50,6 @@ def maybe_remove(path):
 
 
 WAIT_TIMEOUT = 10
-DEBUG = ('--debug' in sys.argv)
 
 KEY_PASSWORD = open(get_relative_path('key_password')).read().strip()
 KEYS_FILENAME = get_relative_path('keys.xls')
@@ -342,18 +342,27 @@ class Cabinet(SeleniumHelperMixin):
         self.wait_visible('i.fa-file-excel-o')
         self.wait_invisible('i.fa-spin')
         self.wait_invisible('.ui-table-loading')
-        maybe_remove(self.budget_status_report_default_path)
-        self.get_element('i.fa-file-excel-o').click()
-        def check_path():
-            return os.path.exists(self.budget_status_report_default_path)
-        self.wait_callback(check_path)
 
-        filename = str(self.inn) + '_' + data['Платіж'].replace(' ', '') + '.xlsx'
-        filename = os.path.join(self.reports_dir, filename)
-        maybe_remove(filename)
-        os.rename(self.budget_status_report_default_path, filename)
+        # For some reason excel table show wrong results some time, so get this from interface
+        tds = self.driver.find_elements_by_css_selector('div.patable.ui-table table td')
+        if tds:
+            return tds[6].text or 0
+        else:
+            return 0
 
-        return self._parse_budget_status_report_saldo(filename)
+        # This is old functionality
+        # maybe_remove(self.budget_status_report_default_path)
+        # self.get_element('i.fa-file-excel-o').click()
+        # def check_path():
+        #     return os.path.exists(self.budget_status_report_default_path)
+        # self.wait_callback(check_path)
+
+        # filename = str(self.inn) + '_' + data['Платіж'].replace(' ', '') + '.xlsx'
+        # filename = os.path.join(self.reports_dir, filename)
+        # maybe_remove(filename)
+        # os.rename(self.budget_status_report_default_path, filename)
+
+        # return self._parse_budget_status_report_saldo(filename)
 
     def get_info(self):
         rv = self.get_payer_info()
