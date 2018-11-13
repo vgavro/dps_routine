@@ -206,12 +206,35 @@ class Cabinet(SeleniumHelperMixin):
         return int(inn), fio
 
     def pre_login_cert(self, cert_path, password=KEY_PASSWORD):
+
         # self.get('https://cabinet.sfs.gov.ua/cabinet/faces/login.jspx')
         self.get('https://cabinet.sfs.gov.ua/login')
 
         # self.wait_presence('.blockUI.blockOverlay')
         self.wait_invisible('.blockUI.blockOverlay')
-        log.info('Logging in with cert %s', cert_path)
+
+        ca_map = {
+            '.jks': 'АЦСК ПАТ КБ «ПРИВАТБАНК»',
+            '.zs2': 'АЦСК ТОВ "Центр сертифікації ключів "Україна"',
+        }
+        for ext, ca_name in ca_map.items():
+            if cert_path.lower().endswith(ext):
+                select_ca = Select(self.get_element('#selectedCAs111'))
+                select_ca.select_by_visible_text(ca_name)
+
+        for pwd_filename in [cert_path + '.txt', cert_path[:cert_path.rfind('.')] + '.txt']:
+            if os.path.exists(pwd_filename):
+                password = open(pwd_filename).read().strip()
+                break
+        else:
+            txt_files = tuple(glob.iglob(cert_path[:cert_path.rfind('/')] + '/*.txt'))
+            if len(txt_files) == 1:
+                password = open(txt_files[0]).read().strip()
+                if not password:
+                    # Treat filename as password if empty
+                    password = os.path.basename(txt_files[0])[:-4]
+
+        log.info('Logging in with cert PATH=%s PASSWORD=%s', cert_path, password)
         return self.enter_cert(cert_path, password)
 
     def login(self, key_path, password=KEY_PASSWORD):
@@ -600,10 +623,16 @@ class KeysMap(dict):
                 path = row[2].value
                 self[inn] = path
             # wb.close()
+
+        skipped = []
         for inn, path in self.items():
             if not os.path.exists(path):
-                log.warn('Skipping %s on key load: file not found %s', inn, path)
-                self.pop(inn)
+                log.warning('Skipping %s on key load: file not found %s', inn, path)
+                skipped.append(inn)
+
+        for inn in skipped:
+            self.pop(inn)
+
         log.info('Keys loaded (%s) from %s', len(self), filename)
 
     def add_key(self, inn, fio, filename):
@@ -613,11 +642,14 @@ class KeysMap(dict):
 
 def scan_keys(keys_dir=KEYS_DIR):
     keys_map = KeysMap()
+    patterns = ['Key-6.dat', '*.jks', '*.zs2', '*.ZS2']
     if glob2:
-        files = tuple(glob2.iglob(os.path.join(KEYS_DIR, '**/Key-6.dat')))
+        files = sum((list(glob2.iglob(os.path.join(KEYS_DIR, '**/%s' % pattern)))
+                    for pattern in patterns), [])
     else:
-        files = tuple(glob.iglob(os.path.join(KEYS_DIR, '**/Key-6.dat'),
-                                 recursive=True))
+        files = sum((list(glob.iglob(os.path.join(KEYS_DIR, '**/%s' % pattern), recursive=True))
+                    for pattern in patterns), [])
+
     log.info('Keys (%s) in %s', len(files), keys_dir)
     for filename in files:
         filename = os.path.abspath(filename)
@@ -672,7 +704,7 @@ def _get_report(filename, headers, method_name, method_kwargs={}):
                  cabinet.inn, cabinet.fio, data)
         skipped_headers = [h for h in headers if h not in data]
         if skipped_headers:
-            log.warn('Skipped headers: %s',  skipped_headers)
+            log.warning('Skipped headers: %s',  skipped_headers)
         row = [data.get(k, '') for k in headers]
         append_xls(filename,
                    ['inn', 'fio', 'parsed'] + headers,
