@@ -49,7 +49,7 @@ def maybe_remove(path):
         os.remove(path)
 
 
-WAIT_TIMEOUT = 10
+WAIT_TIMEOUT = 15
 
 KEY_PASSWORD = open(get_relative_path('key_password')).read().strip()
 KEYS_FILENAME = get_relative_path('keys.xls')
@@ -198,12 +198,13 @@ class Cabinet(SeleniumHelperMixin):
         # self.click('#PKeyReadButton')
         self.get_elements_by_text('Зчитати')[-1].click()
         info = self.wait_visible('#certInfo').text
-        match = re.match('Власник: (.+) \((\d+)\)$', info, re.MULTILINE)
+        match = re.match('Власник: (.+) \((\d+)\)$.*\d{2}\.\d{2}\.\d{4}-(\d{2}\.\d{2}\.\d{4})$',
+                         info, re.MULTILINE | re.DOTALL)
         if not match:
             raise RuntimeError('Unmatched certInfo text: {}'.format(info))
-        fio, inn = match.groups()
-        log.debug('inn=%s, fio=%s', inn, fio)
-        return int(inn), fio
+        fio, inn, expires = match.groups()
+        log.debug('inn=%s, fio=%s expires=%s', inn, fio, expires)
+        return int(inn), fio, expires
 
     def pre_login_cert(self, cert_path, password=KEY_PASSWORD):
 
@@ -211,7 +212,8 @@ class Cabinet(SeleniumHelperMixin):
         self.get('https://cabinet.sfs.gov.ua/login')
 
         # self.wait_presence('.blockUI.blockOverlay')
-        self.wait_invisible('.blockUI.blockOverlay')
+        self.wait_invisible('.blockUI.blockOverlay')  # TODO: already renamed?
+        self.wait_invisible('.ui-blockui-document')
 
         ca_map = {
             '.jks': 'АЦСК ПАТ КБ «ПРИВАТБАНК»',
@@ -238,7 +240,7 @@ class Cabinet(SeleniumHelperMixin):
         return self.enter_cert(cert_path, password)
 
     def login(self, key_path, password=KEY_PASSWORD):
-        self.inn, self.fio = self.pre_login_cert(key_path, password)
+        self.inn, self.fio, _ = self.pre_login_cert(key_path, password)
 
         login = self.driver.find_elements_by_css_selector('button[title=Увійти]')[-1]
         login.click()
@@ -459,7 +461,7 @@ class Cabinet(SeleniumHelperMixin):
 
         self.get_element('button i.fa.fa-key').click()
         self.get_element_by_text_contains('Підпис документа', wait=True)
-        inn, fio = self.enter_cert(key_path, password)
+        inn, fio, expires = self.enter_cert(key_path, password)
         assert inn == self.inn
         assert fio == self.fio
 
@@ -644,9 +646,10 @@ class KeysMap(dict):
 
         log.info('Keys loaded (%s) from %s', len(self), filename)
 
-    def add_key(self, inn, fio, filename):
+    def add_key(self, inn, fio, filename, expires):
         self[inn] = filename
-        append_xls(get_relative_path('keys.xls'), ['inn', 'fio', 'filename'], [inn, fio, filename])
+        append_xls(get_relative_path('keys.xls'), ['inn', 'fio', 'filename', 'expires'],
+                   [inn, fio, filename, expires])
 
 
 def scan_keys(keys_dir=KEYS_DIR):
@@ -666,7 +669,7 @@ def scan_keys(keys_dir=KEYS_DIR):
             log.info('Checking new key %s', filename)
             cabinet = Cabinet()
             try:
-                inn, fio = cabinet.pre_login_cert(filename)
+                inn, fio, expires = cabinet.pre_login_cert(filename)
             except Exception as e:
                 log.exception('Error occured on key processing %s %s', filename, repr(e))
                 if DEBUG:
@@ -675,8 +678,9 @@ def scan_keys(keys_dir=KEYS_DIR):
             finally:
                 cabinet.quit()
 
-            log.info('Adding key inn=%s fio=%s filename=%s', inn, fio, filename)
-            keys_map.add_key(inn, fio, filename)
+            log.info('Adding key inn=%s fio=%s expires=%s filename=%s',
+                     inn, fio, expires, filename)
+            keys_map.add_key(inn, fio, filename, expires)
 
 
 def _get_report(filename, headers, method_name, method_kwargs={}):
