@@ -190,6 +190,29 @@ class Cabinet(SeleniumHelperMixin):
         self.driver = driver or self.create_driver()
 
     def enter_cert(self, cert_path, password=KEY_PASSWORD):
+        ca_map = {
+            '.jks': 'АЦСК ПАТ КБ «ПРИВАТБАНК»',
+            '.zs2': 'АЦСК ТОВ "Центр сертифікації ключів "Україна"',
+        }
+        for ext, ca_name in ca_map.items():
+            if cert_path.lower().endswith(ext):
+                select_ca = Select(self.get_element('#selectedCAs111'))
+                select_ca.select_by_visible_text(ca_name)
+
+        for pwd_filename in [cert_path + '.txt', cert_path[:cert_path.rfind('.')] + '.txt']:
+            if os.path.exists(pwd_filename):
+                password = open(pwd_filename).read().strip()
+                break
+        else:
+            txt_files = tuple(glob.iglob(cert_path[:cert_path.rfind('/')] + '/*.txt'))
+            if len(txt_files) == 1:
+                password = open(txt_files[0]).read().strip()
+                if not password:
+                    # Treat filename as password if empty
+                    password = os.path.basename(txt_files[0])[:-4]
+
+        log.info('Entering cert path=%s password=%s', cert_path, password)
+
         cert_input = self.driver.find_elements_by_css_selector('#PKeyFileInput')[-1]
         cert_input.send_keys(cert_path)
         pwd_input = self.driver.find_elements_by_css_selector('input[type=password]')[-1]
@@ -215,28 +238,6 @@ class Cabinet(SeleniumHelperMixin):
         self.wait_invisible('.blockUI.blockOverlay')  # TODO: already renamed?
         self.wait_invisible('.ui-blockui-document')
 
-        ca_map = {
-            '.jks': 'АЦСК ПАТ КБ «ПРИВАТБАНК»',
-            '.zs2': 'АЦСК ТОВ "Центр сертифікації ключів "Україна"',
-        }
-        for ext, ca_name in ca_map.items():
-            if cert_path.lower().endswith(ext):
-                select_ca = Select(self.get_element('#selectedCAs111'))
-                select_ca.select_by_visible_text(ca_name)
-
-        for pwd_filename in [cert_path + '.txt', cert_path[:cert_path.rfind('.')] + '.txt']:
-            if os.path.exists(pwd_filename):
-                password = open(pwd_filename).read().strip()
-                break
-        else:
-            txt_files = tuple(glob.iglob(cert_path[:cert_path.rfind('/')] + '/*.txt'))
-            if len(txt_files) == 1:
-                password = open(txt_files[0]).read().strip()
-                if not password:
-                    # Treat filename as password if empty
-                    password = os.path.basename(txt_files[0])[:-4]
-
-        log.info('Logging in with cert PATH=%s PASSWORD=%s', cert_path, password)
         return self.enter_cert(cert_path, password)
 
     def login(self, key_path, password=KEY_PASSWORD):
