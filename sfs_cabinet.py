@@ -438,8 +438,10 @@ class Cabinet(SeleniumHelperMixin):
         #     self.wait_invisible('div[role=progressbar]')
         #     self.wait_invisible('.ui-progressbar-value')
         self.wait_visible('button i.fa.fa-upload')
+        sleep(5)  # TODO: we have loaders after button appear
         file_input = self.driver.find_elements_by_css_selector('input[type="file"]')[-1]
         file_input.send_keys(filename)
+        sleep(5)
         self.wait_invisible('p-progressbar')
         self.get_element('button i.fa.fa-check').click()
         self.wait_invisible('p-progressbar')
