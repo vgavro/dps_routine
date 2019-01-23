@@ -191,7 +191,7 @@ class Cabinet(SeleniumHelperMixin):
 
     def enter_cert(self, cert_path, password=KEY_PASSWORD):
         ca_map = {
-            '.jks': 'АЦСК ПАТ КБ «ПРИВАТБАНК»',
+            '.jks': 'АЦСК АТ КБ «ПРИВАТБАНК»',
             '.zs2': 'АЦСК ТОВ "Центр сертифікації ключів "Україна"',
         }
         for ext, ca_name in ca_map.items():
