@@ -50,6 +50,8 @@ def maybe_remove(path):
 
 
 WAIT_TIMEOUT = 15
+LAST_REPORT_STATUS_YEAR = None  # for current year
+LAST_REPORT_STATUS_YEAR = 2018  # delete this row for current year
 
 KEY_PASSWORD = open(get_relative_path('key_password')).read().strip()
 KEYS_FILENAME = get_relative_path('keys.xls')
@@ -377,7 +379,14 @@ class Cabinet(SeleniumHelperMixin):
 
     def get_last_report_status(self):
         self.get('https://cabinet.sfs.gov.ua/vreporting')
-        self.get_element('.sticky-top .col-lg-12 .ui-dropdown-trigger', wait=True).click()
+        report_type = self.get_element('.sticky-top .col-lg-12 .ui-dropdown-trigger', wait=True)
+
+        if LAST_REPORT_STATUS_YEAR:
+            year = self.driver.find_element_by_css_selector('input.ui-inputtext[type=text][size="10"]')
+            year.clear()
+            year.send_keys(str(LAST_REPORT_STATUS_YEAR))
+
+        report_type.click()
         menu = self.driver.find_element_by_css_selector('ul.ui-dropdown-items')
         menu.find_element_by_xpath("./li/span[text() = '{}']".format('Всі')).click()
         self.wait_invisible('ul.ui-dropdown-items')
