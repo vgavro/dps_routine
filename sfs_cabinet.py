@@ -192,15 +192,6 @@ class Cabinet(SeleniumHelperMixin):
         self.driver = driver or self.create_driver()
 
     def enter_cert(self, cert_path, password=KEY_PASSWORD):
-        ca_map = {
-            '.jks': 'АЦСК АТ КБ «ПРИВАТБАНК»',
-            '.zs2': 'АЦСК ТОВ "Центр сертифікації ключів "Україна"',
-        }
-        for ext, ca_name in ca_map.items():
-            if cert_path.lower().endswith(ext):
-                select_ca = Select(self.get_element('#selectedCAs111'))
-                select_ca.select_by_visible_text(ca_name)
-
         for pwd_filename in [cert_path + '.txt', cert_path[:cert_path.rfind('.')] + '.txt']:
             if os.path.exists(pwd_filename):
                 password = open(pwd_filename).read().strip()
@@ -212,8 +203,27 @@ class Cabinet(SeleniumHelperMixin):
                 if not password:
                     # Treat filename as password if empty
                     password = os.path.basename(txt_files[0])[:-4]
+        if '\n' in password:
+            # Treat second line as CA
+            password, ca_name = password.split('\n')
+            password = password.strip()
+            ca_name = ca_name.strip()
+        else:
+            ca_map = {
+                '.jks': 'АЦСК АТ КБ «ПРИВАТБАНК»',
+                '.zs2': 'АЦСК ТОВ "Центр сертифікації ключів "Україна"',
+            }
+            for ext, ca_name in ca_map.items():
+                if cert_path.lower().endswith(ext):
+                    break
+            else:
+                ca_name = None
 
-        log.info('Entering cert path=%s password=%s', cert_path, password)
+        log.info('Entering cert path=%s password=%s ca=%s', cert_path, password, ca_name)
+
+        if ca_name:
+            select_ca = Select(self.get_element('#selectedCAs111'))
+            select_ca.select_by_visible_text(ca_name)
 
         cert_input = self.driver.find_elements_by_css_selector('#PKeyFileInput')[-1]
         cert_input.send_keys(cert_path)
@@ -222,12 +232,25 @@ class Cabinet(SeleniumHelperMixin):
         # sleep(1)  # seems onclick is not always binded
         # self.click('#PKeyReadButton')
         self.get_elements_by_text('Зчитати')[-1].click()
-        info = self.wait_visible('#certInfo').text
-        match = re.match('Власник: (.+) \((\d+)\)$.*\d{2}\.\d{2}\.\d{4}-(\d{2}\.\d{2}\.\d{4})$',
+        try:
+            info = self.wait_visible('#certInfo').text
+        except TimeoutException:
+            raise RuntimeError(self.get_element('div.alert.alert-danger').text)
+
+        match = re.match('Власник: (.+) \((\d*)\)$.*\d{2}\.\d{2}\.\d{4}-(\d{2}\.\d{2}\.\d{4})$',
                          info, re.MULTILINE | re.DOTALL)
         if not match:
             raise RuntimeError('Unmatched certInfo text: {}'.format(info))
         fio, inn, expires = match.groups()
+        if not inn:
+            # It's possible that in some types of privat keys INN only in organization field
+            match = re.match('.*^Організація : (.+) \((\d+)\)$',
+                             info, re.MULTILINE | re.DOTALL)
+            if not match:
+                raise RuntimeError('Unmatched certInfo organization text: {}'.format(info))
+            fio_, inn = match.groups()
+            assert fio == fio_, 'certInfo fio/organization unmatch: "{}" != "{}"'.format(fio, fio_)
+        assert inn, 'No INN from certInfo matched: {}'.format(info)
         log.debug('inn=%s, fio=%s expires=%s', inn, fio, expires)
         return int(inn), fio, expires
 
